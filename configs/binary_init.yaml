@@ -1,0 +1,49 @@
+# Stage-2A: Messidor binary disease/risk pre-finetune.
+# Labels are converted inside the dataset:
+#   DR_bin = 1[dr_grade > 0]
+#   ME_bin = 1[me_risk > 0]
+seed: 42
+
+data:
+  root: data_processed/messidor
+  folds_csv: data_processed/messidor/folds.csv
+  fold: 0
+  image_size: 512
+  resize: true
+  num_workers: 0
+
+model:
+  backbone: convnext_tiny
+  pretrained_imagenet: true
+  backbone_ckpt: null
+  grad_checkpoint: true
+  attention: cross
+  head: softmax
+  num_classes:
+    dr: 2
+    me: 2
+
+loss:
+  type: ce
+  drw_defer_epoch: 5
+  task_weights:
+    dr: 1.0
+    me: 1.0
+  uncertainty: false
+
+train:
+  epochs: 40
+  batch_size: 8
+  grad_accum: 2
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 3
+  amp: true
+  channels_last: true
+  early_stop_metric: binary_balanced
+  early_stop_patience: 12
+
+output:
+  dir: checkpoints/binary_init
+  log_dir: runs/binary_init

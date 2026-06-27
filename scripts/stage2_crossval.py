@@ -46,6 +46,8 @@ def main() -> int:
                     help="Override data.resize in config for train/val transforms")
     ap.add_argument("--output-root", default="checkpoints/stage2_cv")
     ap.add_argument("--log-root", default="runs/stage2_cv")
+    ap.add_argument("--shared-cv-root",
+                    help="Load per-fold shared init from <root>/fold_i/best_binary.pth")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -62,6 +64,8 @@ def main() -> int:
         fold_cfg.setdefault("output", {})
         fold_cfg["output"]["dir"] = str(output_root / f"fold_{fold}")
         fold_cfg["output"]["log_dir"] = str(log_root / f"fold_{fold}")
+        if args.shared_cv_root:
+            fold_cfg["model"]["shared_ckpt"] = str(Path(args.shared_cv_root) / f"fold_{fold}" / "best_binary.pth")
 
         print(f"=== fold {fold} ===")
         result = run_stage2_fold(fold_cfg, resize_override=args.resize)

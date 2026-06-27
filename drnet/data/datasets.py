@@ -60,7 +60,10 @@ class MessidorMultiTaskDataset(Dataset):
     """
 
     def __init__(self, csv_path: str, img_dir: str, fold: int, split: str,
-                 transform=None, on_the_fly: bool = False, image_size: int = 512):
+                 transform=None, on_the_fly: bool = False, image_size: int = 512,
+                 target_mode: str = "full"):
+        if target_mode not in ("full", "binary"):
+            raise ValueError(f"target_mode 必须是 full/binary, 收到 {target_mode}")
         df = pd.read_csv(csv_path)
         if split == "train":
             df = df[df["fold"] != fold]
@@ -73,13 +76,17 @@ class MessidorMultiTaskDataset(Dataset):
         self.transform = transform
         self.on_the_fly = on_the_fly
         self.image_size = image_size
+        self.target_mode = target_mode
 
     def __len__(self) -> int:
         return len(self.df)
 
     def class_counts(self, task: str, num_classes: int) -> list[int]:
         col = "dr_grade" if task == "dr" else "me_risk"
-        return np.bincount(self.df[col].astype(int), minlength=num_classes).tolist()
+        labels = self.df[col].astype(int)
+        if self.target_mode == "binary":
+            labels = (labels > 0).astype(int)
+        return np.bincount(labels, minlength=num_classes).tolist()
 
     def __getitem__(self, i: int):
         row = self.df.iloc[i]
@@ -87,5 +94,8 @@ class MessidorMultiTaskDataset(Dataset):
         img = preprocess_image(path, self.image_size) if self.on_the_fly else _load_rgb(path)
         if self.transform is not None:
             img = self.transform(image=img)["image"]
-        target = {"dr": int(row["dr_grade"]), "me": int(row["me_risk"])}
+        if self.target_mode == "binary":
+            target = {"dr": int(row["dr_grade"] > 0), "me": int(row["me_risk"] > 0)}
+        else:
+            target = {"dr": int(row["dr_grade"]), "me": int(row["me_risk"])}
         return img, target

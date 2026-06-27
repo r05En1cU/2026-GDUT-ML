@@ -68,3 +68,13 @@ class MultiTaskNet(nn.Module):
               if k.startswith("backbone.")} or state
         missing, unexpected = self.backbone.load_state_dict(bb, strict=False)
         return missing, unexpected
+
+    @torch.no_grad()
+    def load_shared(self, ckpt_path: str, map_location="cpu"):
+        """加载 backbone + attention 共享权重,自动跳过任务头。"""
+        state = torch.load(ckpt_path, map_location=map_location)
+        state = state.get("model", state)
+        prefixes = ("backbone.", "att_dr.", "att_me.", "cross.")
+        shared = {k: v for k, v in state.items() if k.startswith(prefixes)}
+        missing, unexpected = self.load_state_dict(shared, strict=False)
+        return missing, unexpected

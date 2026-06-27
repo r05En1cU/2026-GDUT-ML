@@ -1,0 +1,9 @@
+index,image,patient_id,head,true,pred,cam_target,path
+2,20051020_44400_0100_PP.tif,20051020_44400,dr,0,0,0,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\002_dr_true0_pred0.png
+10,20051020_62014_0100_PP.tif,20051020_62014,dr,1,1,0,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\010_dr_true1_pred1.png
+18,20051021_39661_0100_PP.tif,20051021_39661,dr,1,2,1,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\018_dr_true1_pred2.png
+5,20051020_45004_0100_PP.tif,20051020_45004,dr,2,1,0,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\005_dr_true2_pred1.png
+62,20060523_48028_0100_PP.tif,20060523_48028,dr,2,3,2,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\062_dr_true2_pred3.png
+3,20051020_44843_0100_PP.tif,20051020_44843,dr,3,3,2,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\003_dr_true3_pred3.png
+1,20051020_44349_0100_PP.tif,20051020_44349,dr,3,3,2,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\001_dr_true3_pred3.png
+0,20051020_43906_0100_PP.tif,20051020_43906,dr,3,2,1,checkpoints/gradcam_compare_resize_off/a1_binary_init_corn/fold_0/dr\000_dr_true3_pred2.png

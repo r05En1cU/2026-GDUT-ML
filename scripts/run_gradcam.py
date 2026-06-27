@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -34,31 +36,86 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--out", default="checkpoints/stage2/gradcam")
     ap.add_argument("--fold", type=int, help="Override data.fold from config")
+    ap.add_argument("--resize", choices=("on", "off"),
+                    help="Override data.resize for validation transforms")
+    ap.add_argument("--indices", nargs="*", type=int,
+                    help="Dataset indices within the validation fold. Defaults to first n.")
+    ap.add_argument("--target-mode", choices=("full", "binary"), default="full",
+                    help="Use full-grade targets or 0-vs-positive binary targets.")
+    ap.add_argument("--save-original", action="store_true",
+                    help="Also save denormalized input images for side-by-side comparison.")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     if args.fold is not None:
         cfg["data"]["fold"] = args.fold
+    if args.resize is not None:
+        cfg["data"]["resize"] = args.resize == "on"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     d = cfg["data"]
     os.makedirs(args.out, exist_ok=True)
 
-    tf_val = build_transforms(d["image_size"], train=False)
-    ds = MessidorMultiTaskDataset(d["folds_csv"], d["root"], d["fold"], "val",
-                                  transform=tf_val, image_size=d["image_size"])
+    tf_val = build_transforms(d["image_size"], train=False, resize=d.get("resize", True))
+    ds = MessidorMultiTaskDataset(
+        d["folds_csv"],
+        d["root"],
+        d["fold"],
+        "val",
+        transform=tf_val,
+        image_size=d["image_size"],
+        target_mode=args.target_mode,
+    )
     model = MultiTaskNet(cfg["model"]).to(device)
     load_checkpoint(model, args.ckpt, map_location=device, strict=False)
     model.eval()
 
-    for i in range(min(args.n, len(ds))):
-        img, _ = ds[i]
+    indices = args.indices if args.indices else list(range(min(args.n, len(ds))))
+    rows = []
+    for i in indices:
+        if i < 0 or i >= len(ds):
+            raise IndexError(f"index {i} out of range for fold val set of size {len(ds)}")
+        img, target = ds[i]
         x = img.unsqueeze(0).to(device)
-        pred = int(preds_from_outputs(model(x)[args.head], cfg["model"]["head"])[0])
-        cam = gradcam_for(model, x, args.head, pred)
-        out_path = os.path.join(args.out, f"{i:03d}_{args.head}_pred{pred}.png")
-        save_overlay(_denorm(img), cam, out_path)
+        logits = model(x)[args.head]
+        pred = int(preds_from_outputs(logits, cfg["model"]["head"])[0])
+        if cfg["model"]["head"] in ("corn", "coral"):
+            # Ordinal heads expose K-1 threshold logits, not K class logits.
+            cam_target = min(max(pred - 1, 0), logits.shape[1] - 1)
+        else:
+            cam_target = pred
+        cam = gradcam_for(model, x, args.head, cam_target)
+        row = ds.df.iloc[i]
+        true = int(target[args.head])
+        stem = f"{i:03d}_{args.head}_true{true}_pred{pred}"
+        out_path = os.path.join(args.out, f"{stem}.png")
+        rgb = _denorm(img)
+        if args.save_original:
+            Image.fromarray(rgb).save(os.path.join(args.out, f"{stem}_orig.png"))
+        save_overlay(rgb, cam, out_path)
+        rows.append({
+            "index": i,
+            "image": row["image"],
+            "patient_id": row.get("patient_id", ""),
+            "head": args.head,
+            "true": true,
+            "pred": pred,
+            "cam_target": int(cam_target),
+            "dr_grade": int(row["dr_grade"]),
+            "me_risk": int(row["me_risk"]),
+            "path": out_path,
+        })
         print(f"saved {out_path}")
+    with open(os.path.join(args.out, f"manifest_{args.head}.csv"), "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "index", "image", "patient_id", "head", "true", "pred", "cam_target",
+                "dr_grade", "me_risk", "path",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
     return 0
 
 

@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 import torch
+from sklearn.metrics import accuracy_score, roc_auc_score
 from torch.utils.tensorboard import SummaryWriter
 
 from ..utils.checkpoint import save_checkpoint
@@ -77,6 +78,61 @@ def validate(model, loader, device, head_mode, num_classes, channels_last=False)
     return res
 
 
+@torch.no_grad()
+def validate_binary(model, loader, device, channels_last=False) -> dict:
+    """Validate 0-vs-positive binary multitask heads."""
+    model.eval()
+    preds = {"dr": [], "me": []}
+    probs = {"dr": [], "me": []}
+    gts = {"dr": [], "me": []}
+    for images, targets in loader:
+        images = images.to(device, non_blocking=True)
+        if channels_last:
+            images = images.to(memory_format=torch.channels_last)
+        outputs = model(images)
+        for t in ("dr", "me"):
+            prob = torch.softmax(outputs[t], dim=1)[:, 1].cpu()
+            preds[t].append((prob >= 0.5).long())
+            probs[t].append(prob)
+            gts[t].append(targets[t])
+
+    res = {}
+    balances = []
+    for t in ("dr", "me"):
+        p = torch.cat(preds[t]).numpy()
+        s = torch.cat(probs[t]).numpy()
+        g = torch.cat(gts[t]).numpy()
+        tp = int(((g == 1) & (p == 1)).sum())
+        tn = int(((g == 0) & (p == 0)).sum())
+        fp = int(((g == 0) & (p == 1)).sum())
+        fn = int(((g == 1) & (p == 0)).sum())
+        sensitivity = tp / max(tp + fn, 1)
+        specificity = tn / max(tn + fp, 1)
+        balanced = 0.5 * (sensitivity + specificity)
+        balances.append(balanced)
+        try:
+            auc = roc_auc_score(g, s)
+        except ValueError:
+            auc = float("nan")
+        res.update({
+            f"accuracy_{t}": float(accuracy_score(g, p)),
+            f"sensitivity_{t}": float(sensitivity),
+            f"specificity_{t}": float(specificity),
+            f"fpr_{t}": float(fp / max(fp + tn, 1)),
+            f"fnr_{t}": float(fn / max(fn + tp, 1)),
+            f"balanced_{t}": float(balanced),
+            f"auc_{t}": float(auc),
+            f"tp_{t}": tp,
+            f"tn_{t}": tn,
+            f"fp_{t}": fp,
+            f"fn_{t}": fn,
+        })
+    res["binary_balanced"] = float(np.mean(balances))
+    res["binary_sensitivity"] = float(np.mean([res["sensitivity_dr"], res["sensitivity_me"]]))
+    res["binary_specificity"] = float(np.mean([res["specificity_dr"], res["specificity_me"]]))
+    return res
+
+
 def _build_scheduler(optimizer, epochs, warmup, steps_per_epoch):
     total = epochs * steps_per_epoch
     wu = warmup * steps_per_epoch
@@ -143,6 +199,61 @@ def fit(cfg, model, loss_fn, train_loader, val_loader, device):
             bad += 1
             if bad >= patience:
                 print(f"早停于 epoch {epoch}(patience={patience})")
+                break
+    writer.close()
+    return best
+
+
+def fit_binary(cfg, model, loss_fn, train_loader, val_loader, device):
+    """Binary-init training loop with 0-vs-positive validation metrics."""
+    tr = cfg["train"]
+    out_dir = cfg["output"]["dir"]
+    os.makedirs(out_dir, exist_ok=True)
+    writer = SummaryWriter(cfg["output"].get("log_dir", os.path.join(out_dir, "runs")))
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=tr["lr"],
+                                  weight_decay=tr["weight_decay"])
+    grad_accum = tr.get("grad_accum", 1)
+    scheduler = _build_scheduler(
+        optimizer,
+        tr["epochs"],
+        tr.get("warmup_epochs", 0),
+        max(math.ceil(len(train_loader) / max(grad_accum, 1)), 1),
+    )
+    scaler = torch.cuda.amp.GradScaler(enabled=tr.get("amp", False) and device.startswith("cuda"))
+
+    metric_name = tr.get("early_stop_metric", "binary_balanced")
+    best_metric = -1.0
+    best = {"binary_balanced": -1.0}
+    patience, bad = tr.get("early_stop_patience", 10**9), 0
+    for epoch in range(tr["epochs"]):
+        log = train_one_epoch(model, train_loader, loss_fn, optimizer, scaler, epoch, device,
+                              grad_accum=grad_accum,
+                              channels_last=tr.get("channels_last", False),
+                              scheduler=scheduler)
+        val = validate_binary(model, val_loader, device,
+                              channels_last=tr.get("channels_last", False))
+        writer.add_scalar("train/loss", log["train_loss"], epoch)
+        for k, v in val.items():
+            if isinstance(v, (float, int)) and not k.startswith(("tp_", "tn_", "fp_", "fn_")):
+                writer.add_scalar(f"val/{k}", v, epoch)
+        print(f"[binary epoch {epoch}] loss={log['train_loss']:.4f} "
+              f"balanced={val['binary_balanced']:.4f} "
+              f"dr_sens={val['sensitivity_dr']:.4f} dr_spec={val['specificity_dr']:.4f} "
+              f"me_sens={val['sensitivity_me']:.4f} me_spec={val['specificity_me']:.4f}")
+
+        metric = val[metric_name]
+        if metric > best_metric:
+            best_metric = metric
+            best = {**val, "epoch": epoch, "best_metric": metric, "best_metric_name": metric_name}
+            save_checkpoint(model, os.path.join(out_dir, "best_binary.pth"),
+                            extra={"epoch": epoch, "val": val,
+                                   "best_metric": metric, "best_metric_name": metric_name})
+            bad = 0
+        else:
+            bad += 1
+            if bad >= patience:
+                print(f"binary 早停于 epoch {epoch}(patience={patience})")
                 break
     writer.close()
     return best

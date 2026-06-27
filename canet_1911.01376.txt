@@ -1,0 +1,1330 @@
+1
+CANet: Cross-disease Attention Network for
+Joint Diabetic Retinopathy and
+Diabetic Macular Edema Grading
+Xiaomeng Li, Student Member, IEEE, Xiaowei Hu, Lequan Yu, Student Member, IEEE,
+Lei Zhu, Member, IEEE, Chi-Wing Fu, Member, IEEE, and Pheng-Ann Heng, Senior Member, IEEE
+Abstract—Diabetic retinopathy (DR) and diabetic macular
+edema (DME) are the leading causes of permanent blindness in
+the working-age population. Automatic grading of DR and DME
+helps ophthalmologists design tailored treatments to patients,
+thus is of vital importance in the clinical practice. However, prior
+works either grade DR or DME, and ignore the correlation be-
+tween DR and its complication, i.e., DME. Moreover, the location
+information, e.g., macula and soft hard exhaust annotations, are
+widely used as a prior for grading. Such annotations are costly to
+obtain, hence it is desirable to develop automatic grading methods
+with only image-level supervision. In this paper, we present a
+novel cross-disease attention network (CANet) to jointly grade
+DR and DME by exploring the internal relationship between the
+diseases with only image-level supervision. Our key contributions
+include the disease-speciﬁc attention module to selectively learn
+useful features for individual diseases, and the disease-dependent
+attention module to further capture the internal relationship
+between the two diseases. We integrate these two attention mod-
+ules in a deep network to produce disease-speciﬁc and disease-
+dependent features, and to maximize the overall performance
+jointly for grading DR and DME. We evaluate our network on
+two public benchmark datasets, i.e., ISBI 2018 IDRiD challenge
+dataset and Messidor dataset. Our method achieves the best result
+on the ISBI 2018 IDRiD challenge dataset and outperforms other
+methods on the Messidor dataset. Our code is publicly available
+at https://github.com/xmengli999/CANet.
+Index Terms —Diabetic retinopathy, diabetic macular edema,
+joint grading, attention mechanism.
+I. I NTRODUCTION
+Diabetic Retinopathy (DR) is a consequence of microvas-
+cular retinal changes triggered by diabetes. It is the most
+common leading cause of blindness and visual disability in
+the working-age population worldwide [1]. Structures such
+as microaneurysms, hemorrhages, hard exudates, and soft
+exudates are closely associated with DR and the presence of
+each of the aforementioned anomaly determines the grade of
+DR in the patient, as shown in Figure 1. Diabetic Macular
+Edema (DME) is a complication associated with DR, which
+is normally due to the accumulation of ﬂuid leaks from blood
+vessels in the macula region or retinal thickening that occurs
+at any stage of DR [2]. The grading of the severity of DME
+is based on the shortest distances of the hard exudates to the
+X. Li, X. Hu, L. Yu, L. Zhu, C.-W. Fu and P.-A. Heng are with the
+Department of Computer Science and Engineering, The Chinese Univer-
+sity of Hong Kong, Hong Kong (e-mail: xmli, xwhu, lqyu, lzhu, cwfu,
+pheng@cse.cuhk.edu.hk)
+soft exudates
+hard exudates Hemorrhage
+Microaneurysms
+Optic 
+disc
+Macula
+Figure 1: Early pathological signs of DR, e.g., soft exudates,
+hard exudates, microaneurysms, and hemorrhage, in a diabetic
+retinopathy image. Early pathological signs of DME is deter-
+mined by the shortest distance of macula and hard exudates.
+macula. The closer the exudate is to the macular, the more the
+risk increases; see examples in Figure 2. The most effective
+treatment for DR and DME is at their early stage, for example,
+by laser photocoagulation. Therefore, in clinical practice, it is
+important to classify and stage the severity of DR and DME,
+so that DR/DME patients can receive tailored treatment at the
+early stage, which typically depends on the grading.
+Convolutional neural networks (CNNs) have been proven
+to be a powerful tool to learn features for DR [3–5] and
+DME [6, 7] grading. For example, Islam et al. [3] developed a
+network to detect early-stage and severity grades of DR with
+heavy data augmentation. Zhou et al . [4] presented a multi-
+cell multi-task learning framework for DR grading by adopting
+the classiﬁcation and regression losses. Regarding the DME
+grading, Ren et al . [6] presented a semi-supervised learning
+method with vector quantization. These methods, however,
+adopted different deep networks independently for grading
+each disease, ignoring the internal relationship between DR
+and DME, for example, the DME is the complication of DR.
+Recently, some works began to explore joint grading of DR
+and DME [8, 5]. Gulshan et al. [8] employed the Inception-v3
+architecture for DR and DME grading, while Krause et al. [5]
+further improved the performance by utilizing the Inception-
+v4 architecture. However, these works focused on the network
+design and simply regarded the joint grading task as a multi-
+label problem, without considering the implicit relationship
+between these two diseases. In the medical imaging com-
+munity, some work [9–11] employed multi-task learning to
+arXiv:1911.01376v1  [eess.IV]  4 Nov 2019
+2
+DR: 0
+DME: 0
+DR: 1
+DME: 0
+DR: 2
+DME: 2
+DR: 3
+DME: 1
+severeabnormal
+DR: 0; DME: 0D R :  1; DME: 0 DR: 2; DME: 1 DR: 3; DME: 2
+severenormal
+DR: 4; DME: 2
+Figure 2: Examples of fundus images with different pathological severity of DR and DME.
+explore the relationship between different diseases (tasks). A
+key factor for the success in multi-task learning is that the
+information among different tasks is shared, thereby promoting
+the performance of each individual task .
+To explore the feature relationship of DR and DME diseases
+and improve the grading performance for both diseases, it
+requires an understanding of each disease, and also the
+internal relationship between two diseases . To this end, we
+present a novel deep network architecture, called cross-disease
+attention network (CANet), to selectively leverage the features
+learned by the deep convolutional neural network, and produce
+disease-speciﬁc (within each disease) and disease-dependent
+features (between diseases) for joint DR and DME grading.
+In particular, we ﬁrst develop a disease-speciﬁc attention
+module to select features from the extracted feature maps
+for individual disease ( i.e., DR & DME). We then present
+a disease-dependent attention module to explore the internal
+relationship between two diseases by learning a set of attention
+weights, such that a larger weight indicates a higher risk of
+complication ( e.g., DME may lead to worsening DR), and
+vice versa. Through the attention mechanism, our network
+models the implicit relationship between these two diseases,
+and improves the joint grading performance.
+In summary, our contributions are three folds:
+• We present a novel and effective method, named as cross-
+disease attention network (CANet), to jointly model the
+relationship between DR and its complication, i.e., DME.
+To the best of our knowledge, this is the ﬁrst work for
+joint modeling the disease and its complication for fundus
+images.
+• We propose the disease-speciﬁc attention module to se-
+lectively learn useful features for individual diseases,
+and also design an effective disease-dependent attention
+module to capture the internal relationship between two
+diseases.
+• Experiments on the public IDRiD [12] challenge dataset
+and the Messidor [13] dataset show that our CANet
+method outperforms other methods on grading for both
+diseases, and achieves the best performance on the IDRiD
+dataset.
+II. R ELATED WORK
+A. Diabetic Retinopathy Grading
+Early works on automatic diabetic retinopathy grading were
+based on the hand-crafted features to measure the blood ves-
+sels and the optic disc, and on counting the presence of abnor-
+malities such as microaneurysms, soft exudates, hemorrhages,
+and hard exudates, etc. Then the grading was conducted
+using these extracted features by different machine learning
+methods [14–21], e.g., support vector machines (SVM) and
+k-nearest neighbor (kNN) and Gaussian mixture model.
+In the last few years, deep learning algorithms have be-
+come popular for DR grading [22–28]. There are mainly
+two categories of deep learning methods for identifying DR
+severity. The ﬁrst category is to use location information of
+tiny lesions, e.g., microaneurysms, hemorrhage, to determine
+DR grading performance. Van Grinsven et al . [29] sped up
+model training by dynamically selecting misclassiﬁed negative
+samples for hemorrhage detection. Dai et al. [30] proposed a
+multi-modal framework by utilizing both expert knowledges
+from text reports and color fundus images for microaneurysms
+detection. Yang et al. [31] designed a two-stage framework for
+both lesion detection and DR grading by using the annotations
+of locations including microaneurysms, hemorrhage, and ex-
+udates. Lin et al . [32] developed a new framework, where it
+ﬁrst extracted lesion information and then fused it with the
+original image for DR grading. Zhou et al . [33] proposed
+a collaborative learning method for both lesion segmentation
+and DR grading using pixel-level and image-level supervisions
+simultaneously.
+The second category uses image-level supervision to train a
+classiﬁcation model to distinguish DR grades directly [8, 34,
+35]. Gulshan et al. [8] proposed an inception-V3 network for
+DR grading. Gargeya et al. [34] designed a CNN-based model
+for DR severity measurements. Wang et al. [35] used attention
+maps to highlight the suspicious regions, and predicted the
+disease level accurately based on the whole image as well
+as the high-resolution suspicious patches. It is expensive to
+annotate the labels on the medical images in a pixel-wise
+manner, hence, we follow the second category to conduct
+disease grading with only image-level supervision.
+3
+AvgPool
+fc
+Disease‐
+specific 
+attention
+Disease‐
+specific 
+attention
+AvgPool
+fc
+Disease‐
+dependent 
+attention
+Disease‐
+dependent
+attention
+Moderate NPDR
+Normal
+Mild NPDR
+Severe NPDR
+PDR
+fc
+fc
+MLP
+Sigmoid
+Aୡ
+(b) Disease‐dependent attention module.
+MLP
+Sigmoid
+௖ ∈R େ
+Conv
+Sigmoid
+(a) Disease‐specific attention module.
+௜
+ᇱ ∈R େൈୌൈ୛
+∈R େൈୌൈ୛
+௝
+ᇱ ∈R େൈୌൈ୛
+௜ ∈R େ/୰
+௝ ∈R େ/୰
+௜ ∈R େൈୌൈ୛
+Normal
+Mild
+Severe
+௜ ∈R େ/୰
+௝
+ᇱ ∈R େ/୰
+௝
+ᇱ ∈R େ/୰
+௜
+ᇱ ∈R େ/୰
+௜
+௔௩௚௖ ∈R େ
+௠௔௫௖ ∈R େ
+௜,௔௩௚
+∈R ୌൈ୛
+௜,௠௔௫
+∈R ୌൈ୛
+஽ோ
+஽ொ
+஽ொ
+ᇱ
+ࣦ஽ோ
+ᇱfc
+fc
+Figure 3: The schematic illustration of the overall cross-disease attention network (CANet). Gi and Gj denote the disease-
+speciﬁc features for DR and DME, respectively; G′
+i and G′
+j denote the reﬁned features with disease-dependent information
+for DR and DME, respectively; r is the ratio to reduce the number of feature channels for saving parameters; fc denotes the
+fully connected layer; The ﬁnal loss function is the weighted combination of LDR,L′
+DR,LDM E, andL′
+DM E.
+B. Diabetic Macular Edema Grading
+Like the DR grading task, grading DME also attracts
+much attention in the community [36]. The assessment of the
+severity of DME is based on the distances of the exudate
+to the macula. The closer the exudate is to the macular,
+the more the risk increases. Early works used hand-crafted
+features to represent the fundus images [37, 38]. For example,
+Akram et al. [37] presented a screening system for DME that
+encompassed exudate detection with respect to their position
+inside the macular region. The system ﬁrst extract features
+for exudate candidate regions, followed by making a repre-
+sentation of those candidate regions. The exact boundaries
+were determined using a hybrid of GMM model. However,
+the capacity of the hand-crafted features is limited. CNN based
+methods [6, 7] have dramatically improved the performance
+of DME grading. For example, Ren et al . [6] proposed a
+semi-supervised graph-based learning method to grade the
+severity of DME. Syed et al. [7] used knowledge of location
+information of exudates and maculae to measure the severity
+of DME. However, all of these work utilize the location
+information of exudate regions for disease grading. Such an-
+notations (both lesions masks and grading labels) are difﬁcult
+to obtain, in this work, we grade DME with only image-level
+supervision. Under the image-level supervision,Al-Bander et
+al. [39] proposed a CNN-based method based on foveae and
+exudates location for DME screening. However, their method
+classiﬁes the DME into two classes, which is simpler than
+ours.
+C. Multi-task Learning in Medical Imaging Domain
+Since jointly grading DR and DME diseases is related
+to the multi-task learning, we also review related works in
+medical imaging domain [40, 9–11, 41] and most of them
+are designed for image classiﬁcation or regression tasks. For
+example, Chen et al . [9] trained a classiﬁcation network for
+four tasks on the Age-related Macular Degeneration disease
+grading by using the CNN layers to capture common features
+then fully connected layers to learn the features for individual
+tasks. Liu et al. [11] employed a margin ranking loss to jointly
+train the deep network for both lung nodule classiﬁcation and
+attribute score regression tasks. Similarly, Tan et al. [10] used
+the multi-level shared features and designed individual de-
+coders to jointly learn the organ probability map and regressing
+boundary distance map. In contrast to these works that jointly
+do classiﬁcation and regression tasks, we design a novel deep
+network architecture to explore the relationship between two
+diseases, and improve the overall grading performance for both
+diseases.
+III. M ETHODOLOGY
+Figure 3 illustrates the overview of our cross-disease atten-
+tion network (CANet) for joint DR and DME grading, con-
+sisting of two disease-speciﬁc attention modules (Figure 4 (a))
+to learn disease-speciﬁc features and two disease-dependent
+attention modules (Figure 4 (b)) to explore correlative features
+between these two diseases.
+A. Cross-disease Attention Network
+As shown in Figure 3, our cross-disease attention network
+takes a fundus image as the input and outputs the grading
+scores for both DR and DME diseases in an end-to-end
+manner. First, we adopt a convolutional neural network, i.e.,
+ResNet50 [42] to produce a set of feature maps with different
+resolutions. Then, we take the feature maps F∈ RC×H×W
+with the smallest resolution and highly-semantic information
+(the deepest convolutional layer in ResNet50) as the inputs for
+the following two disease-speciﬁc attention modules, which
+learn the disease-speciﬁc features F′
+i∈ RC×H×W and F′
+j∈
+RC×H×W to understand each individual disease. Note that the
+feature is the one before the AvgPool and fully connected layer
+of original ResNet. It contains high-level semantic information
+for DR and DME. Afterwards, we propose disease-dependent
+attention modules to explore the internal relationship between
+the two correlative diseases and produce the disease-dependent
+features for DR and DME, respectively. Finally, we predict the
+grading scores for DR and DME based on the learned disease-
+dependent features.
+4
+In the following subsections, we will ﬁrst elaborate the
+disease-speciﬁc attention module and disease-dependent atten-
+tion module in details, and then present the training and testing
+strategies of our network for DR and DME grading.
+B. Disease-speciﬁc Attention Module
+Each disease has its speciﬁc characteristics, i.e., DR is
+graded by the presence of soft exudates, hard exudates, hemor-
+rhage, and microaneurysms while DME is determined by the
+shortest distance between the macula and hard exudates [25].
+However, the feature maps F ∈ RC×H×W extracted by
+the convolutional neural network only contain the high-level
+representations of the input image and it is difﬁcult to capture
+the speciﬁc characteristics for each disease. In order to learn
+the representation of each individual disease, we present a
+novel disease-speciﬁc attention module to learn the speciﬁc
+semantic features of DR and DME, receptively.
+Figure 4 (a) illustrates the detailed structure of the proposed
+disease-speciﬁc attention module, which takes the feature
+maps F∈ RC×H×W as the input and adopts the channel-
+wise attention as well as the spatial-wise attention to highlight
+the inter-channel and inter-spatial relationship of the features
+related to each disease. Speciﬁcally, we ﬁrst squeeze the
+spatial information from the shared feature maps F via spatial-
+wise average- and max-pooling operations, and obtain two
+kinds of global spatial features Fc
+avg and Fc
+max. Then, we
+feed them into a shared MLP (multi-layer perception) to
+produce the channel-wise attention maps Ac. The channel-
+wise attention maps Ac are described in the following:
+Ac =σ[W1ReLU (W0Fc
+avg ) + W1ReLU (W0Fc
+max)] (1)
+where σ is a sigmoid function to normalize the attention
+weights into [0, 1], W0∈ RC/r×C and W1∈ RC×C/r are
+the weights of the shared MLP, andr is the ratio to reduce the
+number of feature channels for saving the network parameters
+and we empirically set it as 0.5. After obtaining the learned
+attention weights Ac, we multiply it with the original feature
+maps F∈ RC×H×W to produce the disease-speciﬁc feature
+maps Fi:
+Fi = Ac⊗ F , (2)
+where ⊗ denotes the element-wise multiplication, and the
+attention weights Ac are broadcasted along the spatial dimen-
+sion. Hence, we can select the disease-speciﬁc features and
+suppress the features that are irrelevant to the disease along
+the feature channels.
+To further highlight the disease-speciﬁc features across the
+spatial domain, we follow [43, 44] and adopt another attention
+model, which aggregates the channel-wise information by
+applying the max-pooling and avg-pooling operations along
+the channel dimension and produces the feature maps Fs
+i,avg
+and Fs
+i,max. Then, we concatenate these two feature maps
+together and use another convolutional operation to learn the
+2D spatial-wise attention map As:
+As =σ(Conv ([Fs
+i,avg ; Fs
+i,max]) , (3)
+where Conv is a convolution layer and σ denotes the sigmoid
+function. Finally, we obtain the disease-speciﬁc features F′
+i
+Table I: The detailed structure of cross-disease attention
+modules. “FC” represents the fully connected layer; “Conv”
+represents the convolution operation; “ReLU” and “Sigmoid”
+are the ReLU and Sigmoid non-linear operations, respectively;
+“Concat” represents the concatenation operation. For “Conv”,
+we use padding to keep the size of the feature maps. The
+symbols are deﬁned in Figure 4.
+Input feature Type Output feature
+disease-speciﬁc
+F MaxPool, Flatten Fc
+max
+F AvgPool, Flatten Fc
+avg
+Fc
+avg, Fc
+max FC 1 (2048× 128), ReLU -
+- FC 2 (128× 2048) -
+- Sum, Sigmoid Ac
+Ac, F Multiplication Fi
+Fi AvgPool Fs
+i,avg
+Fi MaxPool Fs
+i,max
+Fs
+i,avg, Fs
+i,max Concat, Conv, Sigmoid As
+As , Fi Multiplication F′
+i
+disease-
+dependent
+Gi FC 1 (1024× 64), ReLU -
+- FC 2 (64× 1024) -
+- Sigmoid Ac
+Ac, Gj Multiplication G′
+j
+(F′
+j for another disease; see Figure 3) by multiplying the
+learned attention weights As with the feature maps Fi to select
+the disease-speciﬁc features across the spatial dimension:
+F′
+i = As⊗ Fi . (4)
+Note that the attention weights As are broadcasted along the
+channel dimension during the multiplication. In this way, we
+can further selectively use the disease-speciﬁc features by
+enhancing the disease-relevant features and suppressing the
+disease-irrelevant features across the spatial domain.
+We show the detailed structure of the disease-speciﬁc atten-
+tion module in Table I. The input and output channel number
+of FC 1 and FC 2 in disease-speciﬁc module are 2048× 128
+and 128×2048, respectively. We use ReLu activation after the
+ﬁrst fully connected layer in each attention module.
+C. Disease-dependent Attention Module
+As the statistics of the grading labels shown in Table II and
+Table III, DR and DME have the internal relationship. On the
+one hand, the more exudates are, the greater risk of the macula
+may have, i.e., severer of DR may lead to severer DME. On the
+other hand, the closer of exudates to the macula, the more risk
+of presences of pathological DR signs, i.e., worser of DME
+may lead to worser DR. Motivated by this observation, we
+present the disease-dependent attention module (see Figure 4
+(b)) to capture the internal relationship between these two
+diseases.
+Table II: The statistics of the labels in the Messidor dataset.
+The ﬁrst number is the counts of labels and the second one is
+the relative value.
+DME
+DR 0 1 2 3
+0 546, 45.5% 142, 11.8% 182, 15.2% 104, 8.7%
+1 0, 0.0% 5, 0.4% 28, 2.3% 42, 3.5%
+2 0, 0.0% 6, 0.5% 37, 3.1% 108, 9.0%
+5
+AvgPool
+fc
+Disease‐
+specific 
+attention
+Disease‐
+specific 
+attention
+AvgPool
+fc
+Disease‐
+dependent 
+attention
+Disease‐
+dependent
+attention
+Moderate NPDR
+Normal
+Mild NPDR
+Severe NPDR
+PDR
+fc
+fc
+Sigmoid
+ୡ
+(b) Disease‐dependent attention module.
+(a) The overall architecture.  
+Sigmoid Conv
+Sigmoid
+(a) Disease‐specific attention module.
+࢏۴
+ᇱ ∈R େൈୌൈ୛
+∈R େൈୌൈ୛
+࢐۴
+ᇱ ∈R େൈୌൈ୛
+∈R େ/୰
+∈R େ/୰
+∈R େൈୌൈ୛
+∈R େൈୌൈ୛
+Normal
+Mild
+Severe
+∈R େ/୰
+࢐۵
+ᇱ ∈R େ/୰
+࢐۵
+ᇱ ∈R େ/୰
+࢏۵
+ᇱ ∈R େ/୰
+࢏۴
+ᇱ ∈R େൈୌൈ୛
+Moderate NPDR
+ࣦ஽ோ
+ᇱ
+஽ோ
+஽ொ
+஽ொ
+ᇱ
+fc
+fc
+௔௩௚௖ ∈R େ
+௠௔௫௖ ∈R େ
+ୡ ∈R େ
+௜,௔௩௚
+௦ ∈R ୌൈ୛
+௜,௠௔௫
+௦ ∈R ୌൈ୛
+௦ ∈R ୌൈ୛
+MLP
+fc fc
+MLP
+fc fc
+Figure 4: The architectures of different attention modules. The disease-speciﬁc attention module (a) exploits both the inter-
+channel and inter-spatial relationship of features, while the disease-dependent module (b) explores and aggregates the informative
+inter-channel features from the other branch; (b) shows an example of disease-dependent attention module used for DME
+grading; Ac denotes the spatial-wise attention map and As denotes the channel-wise attention map; r is the ratio to reduce
+the number of feature channels for saving parameters. The actual details of the CANet topology can be found in Table I.
+Table III: The statistics of the labels in the IDRiD dataset. The
+ﬁrst number is the counts of labels and the second one is the
+relative value.
+DME
+DR 0 1 2 3 4
+0 134, 26.0% 18, 3.5% 36, 7.0% 5, 1.0% 4, 0.8%
+1 0, 0.0% 0, 0.0% 24, 4.6% 4, 0.8% 2, 0.4%
+2 0, 0.0% 0, 0.0% 140, 27.1% 116, 22.4% 33, 6.4%
+As shown in Figure 3, this model takes the disease-speciﬁc
+features of both DR and DME diseases as the inputs, i.e.,
+Gi and Gj, which are obtained by adopting the average
+pooling and fully connection operations on F′
+i and F′
+j, and
+then it learns to produce the disease-dependent features for
+DR or DME, respectively. Figure 4 (b) illustrates the detailed
+structures of the proposed disease-dependent attention module
+used for DME grading, which has the similar structures to the
+attention model used for DR grading.
+Speciﬁcally, given the feature maps Gi of DR disease, we
+ﬁrst employ a MLP and a sigmoid function to learn a set
+of attention weights ADR, and then multiply these weights
+with the input feature maps Gi to select the useful features,
+which helps to identify the DME disease. After that, we add
+the selected feature maps with the speciﬁc features of DME
+disease Gj in an element-wise manner ( ⊕) to generate the
+disease-dependent features of DME G′
+j:
+ADR =σ[WDR
+1 ReLU (WDR
+0 (Gi))] , (5)
+G′
+j = Gj⊕ ADR⊗ Gi . (6)
+Hence, the network is able to capture the correlation be-
+tween the DR and DME diseases and improves the overall
+grading performance for both DR and DME diseases. The
+detailed structure of disease-dependent attention module is
+shown in Table I. The input and output channel number of
+FC 1 and FC 2 are 1024× 64 and 64× 1024, respectively. We
+use ReLu activation after the ﬁrst fully connected layer in the
+attention module.
+D. Network Architecture
+We adopted ResNet50 as the backbone network to extract
+features, followed by a dropout layer with the drop rate of
+0.3, and employed two disease-speciﬁc attention modules to
+learn disease-speciﬁc features. We employed two loss func-
+tions, i.e.,L′
+DR andL′
+DM E, to learn disease-speciﬁc features,
+and another two loss functions, i.e.,LDR andLDM E, for the
+ﬁnal DR and DME grading:
+L =LDR +LDM E +λ(L′
+DR +L′
+DM E), (7)
+whereL′
+DR andL′
+DM E denote the cross-entropy loss for DR-
+speciﬁc and DME-speciﬁc feature learning, respectively; LDR
+andLDM E denotes the loss function for the DR and DME
+grading.LDR is a binary cross-entropy loss on the Messidor
+dataset and a 5-class cross-entropy loss on the IDRiD dataset.
+LDM E is a three-class cross-entropy loss on both Messidor
+and IDRiD dataset.
+L(y, ˆy) =− 1
+N
+N∑
+i=1
+M∑
+c=1
+yc
+i log ˆyi
+c (8)
+where ˆyi
+c denotes the probability of voxel i belongs to
+class/gradec, andyc
+i indicates the ground truth label for retinal
+image i. M is three for DME grading and two or ﬁve for DR
+6
+grading (two in the Messidor dataset and ﬁve in the IDRiD
+dataset). Taking DR as an example, we directly apply a fully
+connected layer on DR-speciﬁc features Gi (batch size ×
+1024) for classiﬁcation. The kernel size of fully connected
+layer is 1024 × 2 for Messidor dataset and 1024 × 5 for
+IDRiD dataset. λ is the weight in the loss function. When
+λ = 0.0, the network is optimized by the reﬁned DR and
+DME features that include both disease-speciﬁc and disease-
+dependent information. As λ increasing, the framework gives
+more importance to the disease-speciﬁc feature learning. We
+analyze the effects of different λ in the experiment part, and
+we empirically set λ as 0.25.
+E. Training and Testing Strategies
+We normalized the training images and resize images to
+350× 350 resolution. For data augmentation, we randomly
+scaled and cropped the images into the patches with a size of
+224× 224. Random horizontal ﬂip and vertical ﬂip were also
+used to augment the training data. We optimized the network
+with Adam optimizer [45]. The initial learning rate was 0.0003
+and we decayed the learning rate with a cosine annealing for
+each batch [46]. We trained the network for 1000 epochs and
+the batch size is 40. During the training process, we feed
+the samples of DR and DMR in a random order. The whole
+framework was built on PyTorch [47] with Titan Xp GPU. The
+network has 29 M trainable parameters. The training time of
+the network was ﬁve hours and the inference time was 0.02
+seconds per image.
+To test the grading result, we only used the prediction score
+after the reﬁned DR and DME features, which include the
+disease-dependent information. We selected the class with the
+maximum prediction value in DR and DME, respectively. Dur-
+ing inference, we did not use any post-processing operations
+and model ensemble techniques.
+IV. E XPERIMENTS AND RESULTS
+A. Datasets
+We evaluate the effectiveness of our method by comparing
+it against existing works on Messidor dataset [13]1 and 2018
+ISBI IDRiD challenge dataset [12]2. To the best of our
+knowledge, these two datasets are the only two public datasets
+with both DR and DME severity grading annotations.
+Messidor Dataset. This dataset has 1200 eye fundus color
+numerical images of the posterior pole acquired from three
+ophthalmologic departments. For each image in the dataset,
+its grading annotations of DR and DME are provided by the
+medical experts to measure the retinopathy grade and risk of
+macular edema. Speciﬁcally, DR is graded into four classes by
+the severity scale. Given the fact in the DR screening that the
+difference between normal images and images of stage 1 is
+the most difﬁcult task for both the CAD systems and clinical
+experts, Sánchez et al . [48] grouped stages 0 and 1 of the
+Messidor dataset as referable images and combined stages 2
+and 3 as non-referable in their screening work. This two-class
+setting has been widely used in the existing DR screening
+1http://www.adcis.net/en/third-party/messidor/
+2https://idrid.grand-challenge.org/Grading/
+methods [49, 35], so that we conducted binary classiﬁcation
+for DR grading in the Messidor dataset. To fairly compare with
+previous works [50, 49, 35], we use 10-fold cross validation
+on the entire dataset. DME is annotated based on the shortest
+distanced between the hard exudates location and the macula.
+The severity of DME is graded to 0 (No visible hard exudate),
+1 (d> 1 papilla diameter), 2 ( d< = 1 papilla diameter). The
+statistics of the DR and DME labels in the Messidor dataset
+is shown in Table II.
+IDRiD Dataset. We employed the ISBI 2018 IDRiD sub-
+challenge 2 dataset. This dataset includes 516 images with a
+variety of pathological conditions of DR and DME, consisting
+of 413 training images and 103 test images. In the IDRiD
+dataset, each image contains both DR and DME severity grad-
+ing labels. DR grade is annotated into ﬁve classes according to
+the severity scale, and we perform 5 class classiﬁcation for DR.
+DME is annotated based on the shortest distanced between the
+hard exudates location and the macula. The annotation criteria
+of DME grading is the same as that in the IDRiD dataset.
+The statistics of the labels in the IDRiD dataset is shown in
+Table III. The detailed grading criterion for the IDRiD dataset
+can be found in the provided dataset websites. Note that we
+report 10-fold cross validation results for the Messidor dataset
+and use train & test sets split by the challenge organizers for
+the IDRiD dataset.
+B. Evaluation Metrics
+To measure the joint grading performance, we employ the
+IDRiD challenge evaluation metric “Joint Accuracy" ( Joint
+Ac). The deﬁnition of Joint Ac is: If the prediction matches
+both DR and DME ground-truth label, then it is counted as
+one, else zero. The total number of true instances is divided
+by a total number of images to get the ﬁnal result. We use
+Joint Ac to select our ﬁnal model. For the Messidor dataset,
+we also report the accuracy (Ac), AUC, precision (Pre), recall
+(Rec), F1-score (F1) for each disease.
+For the 2018 ISBI IDRiD dataset, we follow the challenge
+description and use the challenge evaluation metric (“Joint
+Ac”) for comparison.
+C. Analysis of Network Design
+1) Compare with Baselines: We ﬁrst compare our method
+with two baselines, i.e., “Individual training” and “Joint train-
+ing” on the Messidor dataset. “Individual training (DR)” and
+“Individual training (DME)” indicates that we trained two
+individual ResNet50 networks for DR and DME grading,
+respectively. The “Joint training” denotes that we employed
+a ResNet50 network for shared feature extraction and two
+individual fully connected layers for DR and DME grading,
+respectively.
+Table IV reports the 10-fold cross validation results of
+accuracy, AUC, precision, recall, F1-score for DR and DME
+respectively, as well as Joint Ac. It is observed that “Individ-
+ual training (DR)” and “Individual training (DME)” achieve
+89.5% AUC and 89.1% AUC for DR and DME, respectively.
+“Joint training” improves the individual training to 94.2%
+7
+Table IV: Quantitative results on the Messidor dataset. The reported results are the mean values of 10-fold cross validation.
+Ac, Pre, Rec, F1 denote accuracy, precision, recall, F1-score, respectively (unit: %).
+Methods Parameters Joint Ac DR DME
+AUC Ac Pre Rec F1 AUC Ac Pre Rec F1
+Individual training (DR) 23.52 M - 89.5 81.0 76.2 78.9 77.3 - - - - -
+Individual training (DME) 23.52 M - - - - - - 89.1 86.8 62.8 65.2 61.9
+Joint training 23.52 M 82.0 94.2 89.1 86.5 88.2 87.2 90.5 90.4 78.7 73.9 75.3
+Joint training (complex) 29.04 M 82.8 95.2 91.0 90.5 88.6 89.5 90.3 91.7 73.6 71.2 71.1
+Joint training (complex_v2) 29.08 M 82.5 95.4 90.3 87.5 89.8 88.5 89.4 91.0 78.3 72.0 73.4
+CANet (d-S only)
+29.03 M
+84.1 95.8 91.7 91.5 88.8 89.9 90.3 91.0 79.6 71.0 72.5
+CANet (d-S; d-D DR ⇒DME ) 84.5 96.0 91.7 91.5 88.7 90.0 89.4 91.9 82.3 72.0 74.8
+CANet (d-S; d-D DR ⇐DME ) 84.9 96.3 91.9 90.8 90.1 90.3 91.0 91.9 79.6 73.2 74.6
+CANet ( λ=0.25; ﬁnal model) 85.1 96.3 92.6 90.6 92.0 91.2 92.4 91.2 76.3 70.8 72.4
+CANet ( λ=0.00)
+29.03 M
+84.8 96.3 92.1 92.2 88.6 90.3 91.6 91.5 82.4 73.7 75.3
+CANet ( λ=0.50) 84.7 96.1 91.4 89.9 89.7 89.6 92.2 92.0 78.6 74.9 75.3
+CANet ( λ=0.75) 84.8 96.5 92.2 92.3 88.8 90.3 91.8 92.0 79.5 71.4 73.7
+CANet ( λ=1.00) 84.9 96.3 92.7 91.6 90.6 91.0 90.7 91.7 77.4 69.4 71.0
+AUC and 90.5% AUC for DR and DME, respectively. Notably,
+our method (CANet) with the same backbone (ResNet50) and
+training strategies improves the performance over these two
+baselines, with 96.3% AUC (DR) and 92.4% AUC (DME).
+The results show that the effectiveness of our method com-
+pared with these two baselines.
+From the listed model parameters in Table IV, we can see
+that our method has more parameters (29.03 M), compared
+with the Joint training (23.52 M). To validate the effectiveness
+of our design under the same model complexity, we increase
+the parameters of “joint training” to 29.04 M by adding
+several standard components before classiﬁcation on “joint
+training”. These components include a convolutional layer
+with kernel size 2048× 300× 3× 3, batch normalization
+layer and ReLU activation. We also implemented another
+complex joint training baseline, i.e., “Joint training (com-
+plex_v2)” in Table IV. This architecture is implemented by
+adding three convolutional layers on “Joint training” baseline.
+Speciﬁcally, the convolutional layer has the ﬁlter shapes of
+2048× 660× 1× 1, 660× 512× 3× 3, and 512× 256× 3× 3,
+respectively. Each convolutional layer is followed by a BN and
+a ReLU activation. Such complex baselines achieve 82.8% and
+82.5% on joint Ac, respectively. However, with the same level
+of network parameters, our method (85.1%) still achieves the
+best performance, showing the effectiveness of the attention
+modules.
+2) Analyze the Attention Module: We analyze the effects of
+disease-speciﬁc and disease-dependent attention modules. The
+comparisons are conducted with the same network backbone
+(ResNet50) and training strategies. The results are reported
+in Table IV by the 10-fold cross validation on the Messi-
+dor dataset. Compared with the “Joint training”, adding the
+disease-speciﬁc attention module, i.e., “CANet (d-S only)”
+enhances the Joint Ac from 82.0% to 84.1%. The accuracy
+of DR and DME are also improved from 89.1% to 91.7%
+(DR) and from 90.4% to 91.0% (DME), respectively. These
+comparisons demonstrate that disease-speciﬁc attention mod-
+ule explores more discriminative features for speciﬁc disease
+grading.
+Then, we analyze the importance of the disease-dependent
+attention module for DME, i.e., “CANet (d-S; d-D DR⇒DME)".
+This experiment indicates that the correlative feature learned
+on DR is incorporated to DME branch, and vice versa. It is ob-
+served that DR⇒DME improves the Joint Ac result to 84.5%,
+and DME grading results are enhanced on most evaluation
+metrics. Furthermore, we also analyze the importance of the
+disease-dependent attention module for DR, i.e., “CANet (d-S;
+d-D DR⇐DME)”. With this dependent attention branch, the joint
+accuracy is boosted to 84.9%, and DR grading results are also
+increased on most evaluation metrics. When we incorporate
+the disease-dependent attention module into both branches, our
+method “CANet (λ=0.25; ﬁnal model)” achieves the highest
+results, with joint Ac of 85.1%. These results validate that
+the disease-speciﬁc and disease-dependent attention module
+are both effective to utilize the disease-speciﬁc and disease-
+dependent information for better joint grading.
+3) Analyze the Weight λ in the Loss Function: We analyze
+the effect of the weight λ in our method. The bottom part of
+Table IV shows the results with different weights in the loss
+function. Whenλ = 0.00, that whole framework is trained with
+the ﬁnal reﬁned DR and DME features that include the both
+speciﬁc and dependent information. When λ increases, the
+network is trained with the additional supervision for disease-
+speciﬁc attention. As shown in the Table IV, the variance
+of results with different λ is little, which indicates that our
+method is not very sensitive to the weight in the loss function.
+Our method reaches the best “Joint Ac” result (85.1%), when
+λ = 0.25. Therefore, we choose this model as our ﬁnal model.
+4) Analysis on Architectures: To analyze the effective-
+ness of backbone models, we perform experiments on “Joint
+training” to select the proper backbone architecture. The
+“Joint training” denotes that we employed a backbone net-
+work for shared feature extraction and two individual fully
+connected layers for DR and DME grading, respectively.
+We implemented with ResNet50 [42], ResNet34 [42], and
+DenseNet161 [51] and the results is showed in Table VI. We
+can see that ResNet50 achieves better results and ﬁnally we
+use ResNet50 as the backbone model.
+8
+Table V: Comparison with other multi-task learning methods on the Messidor dataset. The reported results are the mean of
+10-fold cross validation (unit: %).
+Methods Joint Ac DR DME
+AUC Ac Pre Rec F1 AUC Ac Pre Rec F1
+Multi-task net [9] 82.4 94.8 89.9 89.7 85.7 87.5 90.5 90.5 79.1 70.8 72.2
+MTMR-Net [11] 83.1 94.9 90.3 90.0 86.7 88.1 90.6 90.4 79.8 73.2 75.4
+CANet (ours) 85.1 96.3 92.6 90.6 92.0 91.2 92.4 91.2 76.3 70.8 72.4
+Table VI: Results of different backbone architectures on the
+Messidor dataset (unit: %).
+Methods Joint Ac
+ResNet50 82.0
+ResNet34 81.4
+DenseNet161 78.9
+D. Compare with other Multi-task Learning Methods
+To the best of our knowledge, there is no previous work
+for joint DR and DME grading. To show the effectiveness
+of our method for joint grading, we compare our method with
+two recent multi-task learning methods in the medical imaging
+community. Chen et al . [9] designed a method for the Age-
+related Macular Degeneration disease grading, while Liu et
+al. [11] proposed a network for both lung nodule classiﬁcation
+and attribute score regression tasks. Since these works are not
+tailored for DR and DME grading, we did not directly use
+their methods for joint DR and DME grading. Instead, we
+adapted their key ideas to our task with the same network
+backbone and training strategies for fair comparison. For [9],
+after the ResNet50 feature extractor, we use the average
+pooling operation. Then, we use another one fully connected
+layer to reduce the channel number to 1024, followed by
+three fully connected layers (channel number: 1024, 256, 128)
+for DR and DME grading, respectively. The dropout layer is
+also employed. For [11], we use a fully connected layer with
+channel size 256 to concatenate the information from one task
+to another task, then two individual fully connected layers are
+employed for ﬁnal DR and DME grading, respectively.
+We report the performance of these two methods in Table V.
+It is observed that our method clearly outperforms these multi-
+task learning based methods on the Joint Accuracy metric.
+Compared with [11], our method achieves 1.4% (AUC) and
+2.3% (Ac) improvement for DR; 1.8% (AUC) and 0.8% (Ac)
+improvement for DME. These results show the superiority of
+our framework for joint DR and DME grading.
+E. Comparisons on the Messidor Dataset
+We also compare our method with other DR grading models
+and DME grading models reported on the Messidor dataset
+in Table VII. As described in section II, there are two main
+branches for DR grading: employing both image-level and
+lesion location information as the supervision [32, 33, 53, 54],
+and employing only image-level supervision [48, 49, 35]. As
+for DME grading, some works [38, 6, 7] utilized macular
+or lesion location information features to help the grading
+Table VII: Results of different methods on the Messidor
+dataset. Our result is under 10-fold cross validation. Other
+results are copied from original papers. “-” indicates no
+reported result.
+Methods DR DME
+AUC Ac AUC Ac
+Lesion-based [50] 76.0 - - -
+Fisher Vector [50] 86.3 - - -
+VNXK/LGI [49] 88.7 89.3 - -
+CKML Net/LGI [49] 89.1 89.7 - -
+Comprehensive CAD [48] 91.0 - - -
+DSF-RFcara [20] 91.6 - - -
+Clinical B [48] 92.0 - - -
+Clinical A [48] 94.0 - - -
+Zoom-in-net [35] † 95.7 91.1 - -
+DME classiﬁer [39] - - - 88.8
+CANet (ours) 96.3 92.6 92.4 91.2
+“†”: denotes using additional dataset EyePACS [52] as the pretrain.
+of DME. For fair comparison, we only compare with those
+methods with only image-level supervision.
+For DR grading models, the combined kernels with multiple
+losses network (CKML) [49] and VGGNet with extra kernels
+(VNXK) [49] aims to employ multiple ﬁlter sizes to learn ﬁne-
+grained discriminant features. Moreover, clinical experts [48]
+were also invited to grade on the Messidor dataset. It is worth
+mentioning that our method outperforms the clinical experts
+by 2.3% abd 4.3% on the AUC metric. Note that the clinical
+experts are provided by speciﬁc expert in [48]. Recently,
+Wang et al . [35] proposed the gated attention model and
+combined three sub-networks to classify the holistic image,
+high-resolution crops and gated regions. It is worth noticing
+that they ﬁrst pretrain their model on EyePACS dataset [52]
+and then ﬁne tune on the Messidor dataset, while we only
+use the Messidar dataset to train our model. Our method with
+cross-disease attention module further pushes the result, which
+obtains 1.5% Ac and 0.6% AUC gain over Zoom-in-net. For
+DME grading, our model excels the other reported results [39]
+by 2.4% improvement on Ac metric.
+F . Results on the IDRiD Challenge Leaderboard
+Table VIII shows the results of our method and other chal-
+lenge participation methods on the IDRiD challenge dataset. 3
+Our model is trained with only the data in the Sub-challenge
+2 (image-level supervision). It is observed that our model
+achieves a joint accuracy of 65.1%, which is higher than the
+top-ranked result by LzyUNCC (an unpublished work) on the
+leaderboard, with a relative 2.0% improvement on the joint
+3Challenge results are in https://idrid.grand-challenge.org/Leaderboard/
+9
+DR    2: 0.00 0.00 0.92 0.07 0.00
+DME 2: 0.00 0.00 1.00
+DR    0: 0.69 0.23 0.07 0.00 0.00
+DME 0: 0.85 0.10 0.04
+DR    3: 0.00 0.00 0.06 0.73 0.20
+DME 2: 0.00 0.00 0.99
+DR    2: 0.00 0.00 0.99 0.01 0.00
+DME 2: 0.00 0.08 0.92
+DR    3: 0.00 0.00 0.00 0.64 0.35
+DME 2: 0.00 0.00 0.99
+DR    4: 0.00 0.00 0.00 0.05 0.95
+DME 2: 0.00 0.10 0.90
+DR    2: 0.00 0.00 0.99 0.00 0.00
+DME 2: 0.00 0.14 0.86
+DR    2: 0.07 0.00 0.86 0.00 0.07
+DME 1: 0.05 0.95 0.00
+Figure 5: Visual results of our method on the test set in the IDRiD dataset. We list the ground-truth, followed by the prediction
+score for different severity for each individual disease in a sequential order (0-4 for DR and 0-2 for DME). Blue indicates our
+predicted grade and green box indicates the ground-truth.
+Table VIII: Comparison with the reported results on the IDRiD
+leaderboard. (unit: %)
+Methods Joint Ac Rank
+CANet (ours) 65.1 1
+lzyuncc 63.1 2
+VRT 55.3 3
+Mammoth 51.5 4
+HarangiM1 47.6 5
+A VSASV A 47.6 5
+HarangiM2 40.8 6
+accuracy. Lastly, it is worth noting that we trained our model
+using only the data in Sub-challenge 2 in the IDRiD dataset,
+while others (unpublished works) may use model ensembles
+or other supervision provided in other Sub-challenges.
+We also analyze the effect of each attention module on the
+IDRiD dataset, and the results are shown in Table IX. With
+only disease-speciﬁc attention modules (CANet (d-S only)),
+our method excels the joint training baseline by 1%. Two
+disease-dependent modules “CANet (d-S, d-D DR⇒DME)” and
+“CANet (d-S, d-D DR⇐DME)” both further improve the joint
+grading performance by exploring the dependence between
+these two diseases. We can also observe that DME has much
+inﬂuences for the grading of DR, and this observation is
+consistent with that in the Messidor dataset in Table IV.
+With both direction dependent attention modules, our method
+achieves the best performance with Joint Ac 65.1%. Finally,
+we visualize some examples of the disease prediction score
+of our method on the IDRiD dataset in Figure 5. We can see
+that our method clearly differentiates the severity for DR and
+0 200 400 600 800 1000
+Interation
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6Loss
+Messidor dataset
+(a)
+0 200 400 600 800 1000
+Interation
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9Loss
+IDRiD dataset (b)
+Figure 6: The learning curves of our method on the Messidor
+dataset (a) and IDRiD dataset (b).
+Table IX: Results on the IDRiD dataset with different attention
+modules setting. (unit: %)
+Methods Joint Ac
+Joint training 59.2
+CANet (d-S only) 60.2
+CANet (d-S, d-D DR ⇒ DME ) 62.1
+CANet (d-S, d-D DR ⇐ DME ) 63.1
+CANet (ﬁnal model) 65.1
+DME, respectively. As shown in Figure 6, we visualize the
+learning curves of our method on the Messidor dataset and
+IDRiD dataset, respectively.
+V. D ISCUSSION
+Recently, with the advances of deep learning techniques,
+automatic grading of DR and DME has been widely studied
+10
+in the research community [6, 7, 38, 54, 53, 33, 32, 55, 35].
+Although the large improvements have been achieved on these
+tasks, to the best of our knowledge, there is no previous works
+that jointly grade these two diseases and model the relationship
+between them. In this work, we investigate the importance of
+the relationship between DR and DME for the joint grading
+task, and propose a cross-disease attention network (CANet)
+to capture the relationship between these two diseases. One
+method consists of two kinds of attention modules: one to
+learn disease-speciﬁc features and another to learn disease-
+dependent features. Results shown on two public benchmark
+datasets, i.e., the Messidor dataset and 2018 ISBI IDRiD
+dataset, demonstrated the effectiveness of our method.
+Although the good performance achieves, the limitation of
+our method still exists. The whole network is trained with
+only image-level supervision, making it very challenging to
+ﬁnd the accurate abnormal signs, such as soft exudates, hard
+exudates, microaneurysms, and hemorrhage. The lesion masks
+or bounding boxes would provide the location information of
+these abnormal signs, which would be largely beneﬁcial to
+the grading tasks [32, 33, 56], since the severity is usually
+based on the lesions. However, we are not aware of any public
+datasets containing both DR, DME grading labels, as well
+as the lesion or abnormal region segmentation masks. One
+solution is to collect the datasets with massive annotations, i.e.,
+lesion masks and the grading labels of multi-diseases. Another
+feasible solution is to explore how to utilize the lesion segmen-
+tation information from additional datasets to help the joint DR
+and DME grading. The dataset with lesion masks and dataset
+with DR & DME grading labels may have domain shifts, and
+generative adversarial networks [57–60] will be beneﬁcial for
+this task.
+Our method is feasible to extend to more correlated diseases.
+The attention mechanism aims to learn the attentional weights
+among multiple diseases. If we have multiple correlated dis-
+eases, the architecture will have multiple outputs, and each
+of them is optimized by an individual loss function to obtain
+the disease-speciﬁc features. Moreover, the disease-dependent
+attention module can be added to these diseases. For example,
+if there are ﬁve correlated diseases, 20 disease-dependent
+attention modules should be designed, and each module learns
+the correlation between every two diseases. Due to the high
+computational cost, the limitations would be the effective
+design of such attention blocks.
+The future direction we would like to work on is to better
+model the relationship between DR and its complication DME,
+and also explore the relationship of multi-diseases occurred
+in one image. One potential research direction is to use
+the graph convolutional neural network [61] to model the
+relationship among different diseases. Through this, we hope
+to leverage the correlative information to improve joint grading
+performance. Also, it might bring some new insights to help
+doctors in understanding the diseases and their complications,
+even in a board area of AI medicine [62, 63].
+VI. C ONCLUSION
+In this work, we present a cross-disease attention network
+(CANet) to jointly grade DR and DME, and explore the
+individual diseases and also the internal relationship between
+two diseases by formulating two attention modules: one to
+learn disease-speciﬁc features and another to learn disease-
+dependent features. After that, the network leverages these two
+features simultaneously for DR and DME grading to maximize
+the overall grading performance. Experimental results on the
+public Messidor dataset demonstrate the superiority of our
+network over other related methods on both the DR and DME
+grading tasks. Moreover, our method also achieves the best
+results on the IDRiD challenge dataset. In the future, we plan
+to train our network jointly with the lesion annotations to
+further improve the DR and DME grading performance.
+REFERENCES
+[1] N. Cho, J. Shaw, S. Karuranga, Y . Huang, J. da Rocha Fernan-
+des, A. Ohlrogge et al. , “Idf diabetes atlas: Global estimates
+of diabetes prevalence for 2017 and projections for 2045,”
+Diabetes research and clinical practice , vol. 138, pp. 271–281,
+2018.
+[2] A. Das, P. G. McGuire, and S. Rangasamy, “Diabetic macular
+edema: pathophysiology and novel therapeutic targets,” Oph-
+thalmology, vol. 122, no. 7, pp. 1375–1394, 2015.
+[3] S. M. S. Islam, M. M. Hasan, and S. Abdullah, “Deep learning
+based early detection and grading of diabetic retinopathy using
+retinal fundus images,” International Conference on Machine
+Learning, Image Processing, Network Security and Data Sci-
+ences, 2018.
+[4] K. Zhou, Z. Gu, W. Liu, W. Luo, J. Cheng, S. Gao et al. ,
+“Multi-cell multi-task convolutional neural networks for dia-
+betic retinopathy grading,” in International Conference of the
+IEEE Engineering in Medicine and Biology Society . IEEE,
+2018, pp. 2724–2727.
+[5] J. Krause, V . Gulshan, E. Rahimy, P. Karth, K. Widner, G. S.
+Corrado et al. , “Grader variability and the importance of ref-
+erence standards for evaluating machine learning models for
+diabetic retinopathy,”Ophthalmology, vol. 125, no. 8, pp. 1264–
+1272, 2018.
+[6] F. Ren, P. Cao, D. Zhao, and C. Wan, “Diabetic macular edema
+grading in retinal images using vector quantization and semi-
+supervised learning,” Technology and Health Care, no. Preprint,
+pp. 1–9, 2018.
+[7] A. M. Syed, M. U. Akram, T. Akram, M. Muzammal, S. Khalid,
+and M. A. Khan, “Fundus images-based detection and grading
+of macular edema using robust macula localization,” IEEE
+Access, vol. 6, pp. 58 784–58 793, 2018.
+[8] V . Gulshan, L. Peng, M. Coram, M. C. Stumpe, D. Wu,
+A. Narayanaswamy et al. , “Development and validation of a
+deep learning algorithm for detection of diabetic retinopathy in
+retinal fundus photographs,” Jama, vol. 316, no. 22, pp. 2402–
+2410, 2016.
+[9] Q. Chen, Y . Peng, T. Keenan, S. Dharssi, E. Agro, W. T. Wong
+et al., “A multi-task deep learning model for the classiﬁcation
+of age-related macular degeneration,” AMIA Summits on Trans-
+lational Science Proceedings , vol. 2019, p. 505, 2019.
+[10] C. Tan, L. Zhao, Z. Yan, K. Li, D. Metaxas, and Y . Zhan,
+“Deep multi-task and task-speciﬁc feature learning network for
+robust shape preserved organ segmentation,” in 2018 IEEE 15th
+International Symposium on Biomedical Imaging (ISBI 2018) .
+IEEE, 2018, pp. 1221–1224.
+[11] L. Liu, Q. Dou, H. Chen, I. E. Olatunji, J. Qin, and P.-A.
+Heng, “Mtmr-net: Multi-task deep learning with margin ranking
+loss for lung nodule analysis,” in Deep Learning in Medical
+Image Analysis and Multimodal Learning for Clinical Decision
+Support. Springer, 2018, pp. 74–82.
+[12] P. Porwal, S. Pachade, R. Kamble, M. Kokare, G. Deshmukh,
+V . Sahasrabuddhe et al. , “Indian diabetic retinopathy image
+11
+dataset (idrid): A database for diabetic retinopathy screening
+research,” Data, vol. 3, no. 3, p. 25, 2018.
+[13] E. Decencière, X. Zhang, G. Cazuguel, B. Lay, B. Cochener,
+C. Trone et al. , “Feedback on a publicly distributed image
+database: the messidor database,” Image Analysis & Stereology,
+vol. 33, no. 3, pp. 231–234, 2014.
+[14] N. Silberman, K. Ahrlich, R. Fergus, and L. Subramanian, “Case
+for automated detection of diabetic retinopathy,” inAAAI Spring
+Symposium Series, 2010.
+[15] A. Sopharak, B. Uyyanonvara, and S. Barman, “Automatic
+exudate detection from non-dilated diabetic retinopathy retinal
+images using fuzzy c-means clustering,” sensors, vol. 9, no. 3,
+pp. 2148–2161, 2009.
+[16] S. Roychowdhury, D. D. Koozekanani, and K. K. Parhi,
+“Dream: diabetic retinopathy analysis using machine learning,”
+IEEE journal of biomedical and health informatics , vol. 18,
+no. 5, pp. 1717–1728, 2013.
+[17] U. R. Acharya, C. M. Lim, E. Y . K. Ng, C. Chee, and T. Tamura,
+“Computer-based detection of diabetes retinopathy stages using
+digital fundus images,” Proceedings of the institution of me-
+chanical engineers, part H: journal of engineering in medicine ,
+vol. 223, no. 5, pp. 545–553, 2009.
+[18] M. U. Akram, S. Khalid, A. Tariq, S. A. Khan, and F. Azam,
+“Detection and classiﬁcation of retinal lesions for grading
+of diabetic retinopathy,” Computers in biology and medicine ,
+vol. 45, pp. 161–171, 2014.
+[19] B. Antal and A. Hajdu, “An ensemble-based system for au-
+tomatic screening of diabetic retinopathy,” Knowledge-based
+systems, vol. 60, pp. 20–27, 2014.
+[20] L. Seoud, T. Hurtut, J. Chelbi, F. Cheriet, and J. P. Langlois,
+“Red lesion detection using dynamic shape features for diabetic
+retinopathy screening,” IEEE transactions on medical imaging ,
+vol. 35, no. 4, pp. 1116–1126, 2015.
+[21] N. Kumar, A. V . Rajwade, S. Chandran, and S. P. Awate, “Ker-
+nel generalized-gaussian mixture model for robust abnormality
+detection,” in MICCAI. Springer, 2017, pp. 21–29.
+[22] H. Pratt, F. Coenen, D. M. Broadbent, S. P. Harding, and
+Y . Zheng, “Convolutional neural networks for diabetic retinopa-
+thy,” Procedia Computer Science , vol. 90, pp. 200–205, 2016.
+[23] X. Li, T. Pang, B. Xiong, W. Liu, P. Liang, and T. Wang, “Con-
+volutional neural networks based transfer learning for diabetic
+retinopathy fundus image classiﬁcation,” in 2017 10th Interna-
+tional Congress on Image and Signal Processing, BioMedical
+Engineering and Informatics (CISP-BMEI) . IEEE, 2017, pp.
+1–11.
+[24] A. Kori, S. S. Chennamsetty, M. S. K.P., and V . Alex, “En-
+semble of convolutional neural networks for automatic grading
+of diabetic retinopathy and macular edema,” arXiv preprint
+arXiv:1809.04228, 2018.
+[25] D. Xiao, A. Bhuiyan, S. Frost, J. Vignarajan, M.-L. Tay-
+Kearney, and Y . Kanagasingam, “Major automatic diabetic
+retinopathy screening systems and related core algorithms: a
+review,” Machine Vision and Applications , vol. 30, no. 3, pp.
+423–446, 2019.
+[26] P. Cao, F. Ren, C. Wan, J. Yang, and O. Zaiane, “Efﬁcient multi-
+kernel multi-instance learning using weakly supervised and im-
+balanced data for diabetic retinopathy diagnosis,” Computerized
+Medical Imaging and Graphics , vol. 69, pp. 112–124, 2018.
+[27] M. T. Hagos and S. Kant, “Transfer learning based detection
+of diabetic retinopathy from small dataset,” arXiv preprint
+arXiv:1905.07203, 2019.
+[28] D. S. W. Ting, L. Carin, and M. D. Abramoff, “Observations
+and Lessons Learned From the Artiﬁcial Intelligence Studies
+for Diabetic Retinopathy Screening,” JAMA Ophthalmology, 06
+2019.
+[29] M. J. Van Grinsven, B. van Ginneken, C. B. Hoyng, T. Theelen,
+and C. I. Sánchez, “Fast convolutional neural network training
+using selective data sampling: Application to hemorrhage de-
+tection in color fundus images,” IEEE transactions on medical
+imaging, vol. 35, no. 5, pp. 1273–1284, 2016.
+[30] L. Dai, B. Sheng, Q. Wu, H. Li, X. Hou, W. Jia et al., “Retinal
+microaneurysm detection using clinical report guided multi-
+sieving cnn,” in MICCAI. Springer, 2017, pp. 525–532.
+[31] Y . Yang, T. Li, W. Li, H. Wu, W. Fan, and W. Zhang, “Lesion
+detection and grading of diabetic retinopathy via two-stages
+deep convolutional neural networks,” in MICCAI. Springer,
+2017, pp. 533–540.
+[32] Z. Lin, R. Guo, Y . Wang, B. Wu, T. Chen, W. Wang et al. ,
+“A framework for identifying diabetic retinopathy based on
+anti-noise detection and attention-based fusion,” in MICCAI.
+Springer, 2018, pp. 74–82.
+[33] Y . Zhou, X. He, L. Huang, L. Liu, F. Zhu, S. Cui et al. ,
+“Collaborative learning of semi-supervised segmentation and
+classiﬁcation for medical images,” in CVPR, 2019, pp. 2079–
+2088.
+[34] R. Gargeya and T. Leng, “Automated identiﬁcation of diabetic
+retinopathy using deep learning,” Ophthalmology, vol. 124,
+no. 7, pp. 962–969, 2017.
+[35] Z. Wang, Y . Yin, J. Shi, W. Fang, H. Li, and X. Wang, “Zoom-
+in-net: Deep mining lesions for diabetic retinopathy detection,”
+in MICCAI. Springer, 2017, pp. 267–275.
+[36] M. Fraz, M. Badar, A. Malik, and S. Barman, “Computational
+methods for exudates detection and macular edema estimation
+in retinal images: a survey,”Archives of Computational Methods
+in Engineering, pp. 1–28, 2018.
+[37] M. U. Akram, A. Tariq, S. A. Khan, and M. Y . Javed,
+“Automated detection of exudates and macula for grading of
+diabetic macular edema,” Computer methods and programs in
+biomedicine, vol. 114, no. 2, pp. 141–152, 2014.
+[38] U. R. Acharya, M. R. K. Mookiah, J. E. Koh, J. H. Tan, S. V .
+Bhandary, A. K. Rao et al., “Automated diabetic macular edema
+(dme) grading system using dwt, dct features and maculopathy
+index,” Computers in biology and medicine , vol. 84, pp. 59–68,
+2017.
+[39] B. Al-Bander, W. Al-Nuaimy, M. A. Al-Taee, B. M. Williams,
+and Y . Zheng, “Diabetic macular edema grading based on deep
+neural networks.” University of Iowa, 2016.
+[40] P. Moeskops, J. M. Wolterink, B. H. van der Velden, K. G.
+Gilhuijs, T. Leiner, M. A. Viergever et al., “Deep learning for
+multi-task medical image segmentation in multiple modalities,”
+in MICCAI, 2016, pp. 478–486.
+[41] W. Xue, G. Brahm, S. Pandey, S. Leung, and S. Li, “Full
+left ventricle quantiﬁcation via deep multitask relationships
+learning,” Medical Image Analysis , vol. 43, pp. 54–65, 2018.
+[42] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning
+for image recognition,” in CVPR, 2016.
+[43] S. Woo, J. Park, J.-Y . Lee, and I. So Kweon, “Cbam: Convolu-
+tional block attention module,” in ECCV, 2018, pp. 3–19.
+[44] J. Hu, L. Shen, and G. Sun, “Squeeze-and-excitation networks,”
+in CVPR, 2018, pp. 7132–7141.
+[45] D. P. Kingma and J. Ba, “Adam: A method for stochastic
+optimization,” in ICLR, 2015.
+[46] I. Loshchilov and F. Hutter, “Sgdr: Stochastic gradient descent
+with warm restarts,” in ICLR, 2017.
+[47] A. Paszke, S. Gross, S. Chintala, G. Chanan, E. Yang, Z. DeVito
+et al., “Automatic differentiation in pytorch,” 2017.
+[48] C. I. Sánchez, M. Niemeijer, A. V . Dumitrescu, M. S. Suttorp-
+Schulten, M. D. Abramoff, and B. van Ginneken, “Evaluation
+of a computer-aided diagnosis system for diabetic retinopathy
+screening on public data,” Investigative ophthalmology & visual
+science, vol. 52, no. 7, pp. 4866–4871, 2011.
+[49] H. H. V o and A. Verma, “New deep neural nets for ﬁne-grained
+diabetic retinopathy recognition on hybrid color space,” in IEEE
+International Symposium on Multimedia. IEEE, 2016, pp. 209–
+215.
+[50] R. Pires, S. Avila, H. F. Jelinek, J. Wainer, E. Valle, and
+A. Rocha, “Beyond lesion-based diabetic retinopathy: a direct
+approach for referral,” IEEE journal of biomedical and health
+12
+informatics, vol. 21, no. 1, pp. 193–200, 2015.
+[51] G. Huang, Z. Liu, L. Van Der Maaten, and K. Q. Weinberger,
+“Densely connected convolutional networks,” in CVPR, 2017,
+pp. 4700–4708.
+[52] “Kaggle diabetic retinopathy detection competition,” https://
+www.kaggle.com/c/diabetic-retinopathy-detection.
+[53] N. Ramachandran, S. C. Hong, M. J. Sime, and G. A. Wilson,
+“Diabetic retinopathy screening using deep neural network,”
+Clinical & experimental ophthalmology, vol. 46, no. 4, pp. 412–
+416, 2018.
+[54] J. Sahlsten, J. Jaskari, J. Kivinen, L. Turunen, E. Jaanio,
+K. Hietala et al. , “Deep learning fundus image analysis for
+diabetic retinopathy and macular edema grading,”arXiv preprint
+arXiv:1904.08764, 2019.
+[55] Y .-W. Chen, T.-Y . Wu, W.-H. Wong, and C.-Y . Lee, “Diabetic
+retinopathy detection based on deep convolutional neural net-
+works,” in 2018 IEEE International Conference on Acoustics,
+Speech and Signal Processing (ICASSP) . IEEE, 2018, pp.
+1030–1034.
+[56] J. I. Orlando, E. Prokofyeva, M. del Fresno, and M. B. Blaschko,
+“An ensemble deep learning based approach for red lesion
+detection in fundus images,” Computer methods and programs
+in biomedicine, vol. 153, pp. 115–127, 2018.
+[57] J. Zhao, M. Mathieu, and Y . LeCun, “Energy-based generative
+adversarial network,” arXiv preprint arXiv:1609.03126 , 2016.
+[58] C. Ledig, L. Theis, F. Huszár, J. Caballero, A. Cunningham,
+A. Acosta et al., “Photo-realistic single image super-resolution
+using a generative adversarial network,” in CVPR, 2017, pp.
+4681–4690.
+[59] M. Arjovsky, S. Chintala, and L. Bottou, “Wasserstein genera-
+tive adversarial networks,” in ICML, 2017, pp. 214–223.
+[60] L. Shen, W. Zhao, and L. Xing, “Patient-speciﬁc reconstruction
+of volumetric computed tomography images from a single pro-
+jection view via deep learning,” Nature biomedical engineering,
+pp. 1–9, 2019.
+[61] J. Zhou, G. Cui, Z. Zhang, C. Yang, Z. Liu, and M. Sun, “Graph
+neural networks: A review of methods and applications,” arXiv
+preprint arXiv:1812.08434, 2018.
+[62] W. Zhao, B. Han, Y . Yang, M. Buyyounouski, S. L. Hancock,
+H. Bagshaw, and L. Xing, “Incorporating imaging information
+from deep neural network layers into image guided radiation
+therapy (igrt),” Radiotherapy and Oncology, vol. 140, pp. 167–
+174, 2019.
+[63] L. Cao, R. Shi, Y . Ge, L. Xing, P. Zuo, Y . Jia, J. Liu, Y . He,
+X. Wang, S. Luan et al., “Fully automatic segmentation of type
+b aortic dissection from cta images enabled by deep learning,”
+European Journal of Radiology , 2019.

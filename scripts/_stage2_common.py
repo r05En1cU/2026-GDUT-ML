@@ -69,7 +69,10 @@ def run_stage2_fold(cfg: dict, resize_override: str | None = None) -> dict[str, 
     )
 
     model = MultiTaskNet(cfg["model"]).to(device)
-    if cfg["model"].get("backbone_ckpt"):
+    if cfg["model"].get("shared_ckpt"):
+        missing, unexpected = model.load_shared(cfg["model"]["shared_ckpt"])
+        print(f"loaded shared init (missing={len(missing)}, unexpected={len(unexpected)})")
+    elif cfg["model"].get("backbone_ckpt"):
         missing, unexpected = model.load_backbone(cfg["model"]["backbone_ckpt"])
         print(f"loaded Stage-1 backbone (missing={len(missing)}, unexpected={len(unexpected)})")
     else:
