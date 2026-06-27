@@ -40,5 +40,6 @@ Thumbs.db
 *.log
 events.out.tfevents.*
 
-# Local data inside reference repos
-/reference/**/data/
+# Third-party reference code
+/reference/*
+!/reference/INDEX.md
