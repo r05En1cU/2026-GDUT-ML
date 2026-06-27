@@ -1,0 +1,35 @@
+# Stage-1: 主干表示预训练 (EyePACS + APTOS + Messidor-2, DR grade 0-4, 单头)
+# 仅为得到"眼底/病灶感知"的 ConvNeXt-Tiny 主干; 训完丢弃 5 类头, 只存 backbone。
+# 算力紧张时可: 子采样 subsample, 减少 epochs, 或整个跳过(直接用 ImageNet 进 Stage-2)。
+seed: 42
+
+data:
+  root: data_processed/pretrain        # 合并后的预处理图目录
+  csv: data_processed/pretrain/labels.csv   # 列: image, dr_grade(0-4), source
+  image_size: 512
+  num_workers: 4
+  subsample_per_class: null            # 设整数则每类均衡抽样(如 15000)以提速; null 用全量
+
+model:
+  backbone: convnext_tiny
+  pretrained_imagenet: true            # 从 ImageNet 起步再在 DR 上预训练
+  grad_checkpoint: true
+  num_classes: 5                       # ICDR 0-4
+
+loss:
+  type: ce                             # 预训练用普通交叉熵即可(可选 ldam)
+
+train:
+  epochs: 10                           # 轻预训练; 充足算力可加到 20-30
+  batch_size: 8
+  grad_accum: 2
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 2
+  amp: true
+  channels_last: true
+
+output:
+  dir: checkpoints/stage1              # 保存 backbone.pth
+  log_dir: runs/stage1

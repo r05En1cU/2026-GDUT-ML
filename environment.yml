@@ -1,0 +1,43 @@
+# DR + DME 多任务识别系统 — conda 环境
+# 创建:  conda env create -f environment.yml
+# 激活:  conda activate dr-dme
+# 说明:  默认 CUDA 12.1。无 GPU / 想用 CPU 时,删掉 pytorch-cuda 那行,
+#         并把 pytorch/torchvision 换成 cpu 版(见文件末注释)。
+name: dr-dme
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  # ---- 深度学习核心(走 conda,保证 CUDA 匹配)----
+  - pytorch=2.3.*
+  - torchvision=0.18.*
+  - pytorch-cuda=12.1          # GPU 用;CPU 环境请删除此行
+  # ---- 科学计算 / 数据 ----
+  - numpy<2.0
+  - pandas
+  - scikit-learn               # QWK: cohen_kappa_score(weights="quadratic")
+  - scipy
+  - pyyaml
+  - tqdm
+  - matplotlib
+  - seaborn                    # 混淆矩阵热力图
+  - pip
+  # ---- pip 专属(conda 源没有或版本旧)----
+  - pip:
+      - timm==1.0.*            # convnext_tiny + 预训练权重
+      - albumentations==1.4.*  # 眼底图增广
+      - opencv-python-headless==4.10.*   # 圆裁剪 / Ben Graham 归一化
+      - coral-pytorch==1.4.*   # CORAL / CORN 序数头与损失
+      - grad-cam==1.5.*        # Grad-CAM (import pytorch_grad_cam)
+      - tensorboard
+      - Pillow
+
+# ─────────────────────────────────────────────────────────────
+# CPU-only 备选(把上面 pytorch 三行替换为):
+#   - cpuonly
+#   - pytorch=2.3.*
+#   - torchvision=0.18.*
+# 并删除 channels 里的 nvidia。
+# ─────────────────────────────────────────────────────────────

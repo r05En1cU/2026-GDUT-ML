@@ -1,0 +1,51 @@
+# Ablation B: use qwk_mean for early stopping.
+seed: 42
+
+data:
+  root: data_processed/messidor
+  folds_csv: data_processed/messidor/folds.csv
+  fold: 0
+  image_size: 512
+  resize: true
+  num_workers: 0
+
+model:
+  backbone: convnext_tiny
+  pretrained_imagenet: true
+  backbone_ckpt: null
+  grad_checkpoint: true
+  attention: cross
+  head: corn
+  num_classes:
+    dr: 4
+    me: 3
+
+loss:
+  type: ldam
+  ldam_max_m: 0.5
+  ldam_s: 30
+  drw_defer_epoch: 5
+  task_weights:
+    dr: 1.0
+    me: 1.0
+  uncertainty: false
+
+train:
+  epochs: 80
+  batch_size: 8
+  grad_accum: 2
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 5
+  amp: true
+  channels_last: true
+  early_stop_metric: qwk_mean
+  early_stop_patience: 25
+
+output:
+  dir: checkpoints/stage2
+  log_dir: runs/stage2
+
+eval:
+  tta: false

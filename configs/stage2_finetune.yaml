@@ -1,0 +1,52 @@
+# Stage-2: fine-tune multitask heads on original Messidor (DR 0-3 + ME 0-2)
+# 10G VRAM defaults. OOM ladder: amp+grad_checkpoint -> lower batch_size/increase grad_accum -> lower image_size.
+seed: 42
+
+data:
+  root: data_processed/messidor
+  folds_csv: data_processed/messidor/folds.csv
+  fold: 0                             # Single-fold mode. Use scripts/stage2_crossval.py for full 5-fold.
+  image_size: 512
+  resize: true                        # Override with --resize on/off.
+  num_workers: 0
+
+model:
+  backbone: convnext_tiny
+  pretrained_imagenet: true
+  backbone_ckpt: null                 # null = ImageNet init; set checkpoints/stage1/backbone.pth to load Stage-1.
+  grad_checkpoint: true
+  attention: cross                    # none | specific | cross
+  head: corn                          # corn | coral | softmax
+  num_classes:
+    dr: 4
+    me: 3
+
+loss:
+  type: ldam                          # ce | focal | ldam
+  ldam_max_m: 0.5
+  ldam_s: 30
+  drw_defer_epoch: 5
+  task_weights:
+    dr: 1.0
+    me: 1.0
+  uncertainty: false
+
+train:
+  epochs: 80
+  batch_size: 8
+  grad_accum: 2                       # effective batch = 16
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 5
+  amp: true
+  channels_last: true
+  early_stop_metric: balanced         # 0.5*qwk_mean + 0.5*macro_recall
+  early_stop_patience: 25
+
+output:
+  dir: checkpoints/stage2
+  log_dir: runs/stage2
+
+eval:
+  tta: false
