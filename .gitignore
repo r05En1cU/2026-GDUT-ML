@@ -1,15 +1,13 @@
-/data/
-/data_processed/
+/data/*
+!/data/.gitkeep
+/data_processed/*
+!/data_processed/.gitkeep
 
 # Training artifacts
 /runs/
-/checkpoints/**/*.pth
-/checkpoints/**/*.pt
-/checkpoints/**/*.ckpt
-/archives/**/runs/
-/archives/**/checkpoints/**/*.pth
-/archives/**/checkpoints/**/*.pt
-/archives/**/checkpoints/**/*.ckpt
+/checkpoints/*
+!/checkpoints/.gitkeep
+/archives/
 
 # Python cache and build outputs
 __pycache__/
@@ -43,3 +41,36 @@ events.out.tfevents.*
 # Third-party reference code
 /reference/*
 !/reference/INDEX.md
+
+# Archives
+/archives/
+
+# Unused scripts
+/scripts/stage1_pretrain.py
+/scripts/diagnose.py
+/scripts/monitor_stage2.py
+/scripts/eval_corn_distribution.py
+/scripts/eval_softmax_projection.py
+/scripts/search_softmax_projection.py
+/scripts/expand_maples_labels.py
+/scripts/index_maples_dr.py
+/scripts/prepare_maples_dr.py
+/scripts/preprocess_maples_dr.py
+
+# Unused module
+/drnet/engine/decouple.py
+
+# Unused configs
+/configs/stage1_pretrain.yaml
+/configs/_smoke_resnet50_softmax_ldam.yaml
+/configs/_bench_resnet50_gc_off.yaml
+
+# Paper directory
+/paper
+
+# Process documents (superseded by README.md)
+/代码骨架.md
+/TUTORIAL.md
+/After_Softmax.md
+/DISCOVERY.md
+/DR识别系统技术路线.md

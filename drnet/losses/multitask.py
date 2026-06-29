@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ldam import LDAMLoss, drw_weights
+from .ldam import LDAMLoss, drw_weights, schedule_alpha
 from .ordinal import coral_loss, corn_loss
 
 
@@ -34,6 +34,12 @@ class MultiTaskLoss(nn.Module):
         self.num_classes = cfg["num_classes"]            # {'dr':4,'me':3}
         self.cls_num = cls_num
         self.drw_defer = cfg.get("drw_defer_epoch", 10**9)
+        self.drw_ramp = float(cfg.get("drw_ramp_epochs", 0.0))
+        self.drw_schedule = cfg.get("drw_schedule", "step")
+        self.drw_beta = float(cfg.get("drw_beta", 0.9999))
+        self.ldam_margin_defer = cfg.get("ldam_margin_defer_epoch", 0)
+        self.ldam_margin_ramp = float(cfg.get("ldam_margin_ramp_epochs", 0.0))
+        self.ldam_margin_schedule = cfg.get("ldam_margin_schedule", self.drw_schedule)
         self.uncertainty = cfg.get("uncertainty", False)
         tw = cfg.get("task_weights", {"dr": 1.0, "me": 1.0})
         if self.uncertainty:
@@ -47,27 +53,43 @@ class MultiTaskLoss(nn.Module):
                                      cfg.get("ldam_s", 30.0)) for t in ("dr", "me")}
 
     def _head_loss(self, task: str, logits: torch.Tensor, target: torch.Tensor,
-                   epoch: int) -> torch.Tensor:
+                   epoch: float) -> torch.Tensor:
         K = self.num_classes[task]
         if self.head_mode == "corn":
-            w = drw_weights(self.cls_num[task], epoch, self.drw_defer)
+            w = drw_weights(
+                self.cls_num[task], epoch, self.drw_defer,
+                beta=self.drw_beta, ramp_epochs=self.drw_ramp,
+                schedule=self.drw_schedule,
+            )
             lvl_w = w[1:].to(logits.device) if w is not None else None
             return corn_loss(logits, target, K, weights=lvl_w)
         if self.head_mode == "coral":
-            w = drw_weights(self.cls_num[task], epoch, self.drw_defer)
+            w = drw_weights(
+                self.cls_num[task], epoch, self.drw_defer,
+                beta=self.drw_beta, ramp_epochs=self.drw_ramp,
+                schedule=self.drw_schedule,
+            )
             lvl_w = w[1:].to(logits.device) if w is not None else None  # 近似:用类权重的尾部
             return coral_loss(logits, target, K, weights=lvl_w)
         # softmax 头
-        weight = drw_weights(self.cls_num[task], epoch, self.drw_defer)
+        weight = drw_weights(
+            self.cls_num[task], epoch, self.drw_defer,
+            beta=self.drw_beta, ramp_epochs=self.drw_ramp,
+            schedule=self.drw_schedule,
+        )
         weight = weight.to(logits.device) if weight is not None else None
         if self.loss_type == "ldam":
             self.ldam[task].weight = weight
-            return self.ldam[task](logits, target)
+            margin_scale = schedule_alpha(
+                epoch, self.ldam_margin_defer,
+                self.ldam_margin_ramp, self.ldam_margin_schedule,
+            )
+            return self.ldam[task](logits, target, margin_scale=margin_scale)
         if self.loss_type == "focal":
             return _focal_loss(logits, target, weight=weight)
         return F.cross_entropy(logits, target, weight=weight)
 
-    def forward(self, outputs: dict, targets: dict, epoch: int):
+    def forward(self, outputs: dict, targets: dict, epoch: float):
         l_dr = self._head_loss("dr", outputs["dr"], targets["dr"], epoch)
         l_me = self._head_loss("me", outputs["me"], targets["me"], epoch)
         if self.uncertainty:

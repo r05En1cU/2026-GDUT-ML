@@ -21,8 +21,11 @@ def _read_scalars(event_path: Path) -> dict:
     ea = event_accumulator.EventAccumulator(str(event_path))
     ea.Reload()
     out = {}
-    for tag in ("train/loss", "val/qwk_dr", "val/qwk_me", "val/qwk_mean"):
-        vals = ea.Scalars(tag)
+    available = set(ea.Tags().get("scalars", []))
+    for tag in ("train/loss",
+                "val/accuracy_mean", "val/min_recall",
+                "val/qwk_dr", "val/qwk_me", "val/qwk_mean"):
+        vals = ea.Scalars(tag) if tag in available else []
         out[tag] = vals[-1] if vals else None
     return out
 
@@ -135,6 +138,8 @@ def main() -> int:
         print(
             f"[{now}] {marker} "
             f"{_fmt_scalar('loss', scalars['train/loss'])} "
+            f"{_fmt_scalar('acc_mean', scalars['val/accuracy_mean'])} "
+            f"{_fmt_scalar('min_recall', scalars['val/min_recall'])} "
             f"{_fmt_scalar('qwk_dr', scalars['val/qwk_dr'])} "
             f"{_fmt_scalar('qwk_me', scalars['val/qwk_me'])} "
             f"{_fmt_scalar('qwk_mean', scalars['val/qwk_mean'])} | "

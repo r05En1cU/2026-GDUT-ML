@@ -1,4 +1,5 @@
-# Ablation C: replace CORN with softmax + LDAM/DRW.
+# Experiment A2-smooth: binary init -> softmax + LDAM/DRW full-grade finetune
+# with continuous LDAM-margin and DRW schedules.
 seed: 42
 
 data:
@@ -13,6 +14,7 @@ model:
   backbone: convnext_tiny
   pretrained_imagenet: true
   backbone_ckpt: null
+  shared_ckpt: null
   grad_checkpoint: true
   attention: cross
   head: softmax
@@ -50,8 +52,8 @@ train:
   early_stop_patience: 25
 
 output:
-  dir: checkpoints/stage2
-  log_dir: runs/stage2
+  dir: checkpoints/a2_binary_init_softmax_ldam_smooth
+  log_dir: runs/a2_binary_init_softmax_ldam_smooth
 
 eval:
   tta: false

@@ -28,8 +28,10 @@ def _infer_folds(folds_csv: str) -> list[int]:
 def _fold_summary(results: list[dict]) -> dict:
     df = pd.DataFrame(results)
     summary = {"folds": df["fold"].tolist(), "n_folds": int(len(df))}
-    for metric in ("qwk_dr", "qwk_me", "qwk_mean",
+    for metric in ("accuracy_dr", "accuracy_me", "accuracy_mean",
+                   "qwk_dr", "qwk_me", "qwk_mean",
                    "macro_recall_dr", "macro_recall_me", "macro_recall",
+                   "min_recall_dr", "min_recall_me", "min_recall",
                    "balanced"):
         summary[metric] = {
             "mean": float(df[metric].mean()),
@@ -82,8 +84,9 @@ def main() -> int:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
     print("=== cross-val summary ===")
-    print(df[["fold", "qwk_dr", "qwk_me", "qwk_mean",
-              "macro_recall", "balanced", "epoch"]].to_string(index=False))
+    print(df[["fold", "accuracy_dr", "accuracy_me", "accuracy_mean",
+              "qwk_dr", "qwk_me", "qwk_mean",
+              "macro_recall", "min_recall", "balanced", "epoch"]].to_string(index=False))
     for metric, stats in summary.items():
         if isinstance(stats, dict):
             print(f"{metric}: mean={stats['mean']:.4f} std={stats['std']:.4f}")

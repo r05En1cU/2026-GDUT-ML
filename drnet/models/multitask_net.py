@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from .attention import CrossDiseaseAttention, DiseaseSpecificAttention
-from .backbone import ConvNeXtTinyBackbone
+from .backbone import ConvNeXtTinyBackbone, ResNet50Backbone
 from .heads import build_head
 
 
@@ -27,10 +27,17 @@ class MultiTaskNet(nn.Module):
         self.head_mode = m.get("head", "corn")
         nc = m["num_classes"]
 
-        self.backbone = ConvNeXtTinyBackbone(
-            pretrained=m.get("pretrained_imagenet", True),
-            grad_checkpoint=m.get("grad_checkpoint", False),
-        )
+        backbone_name = m.get("backbone", "convnext_tiny")
+        backbone_kwargs = {
+            "pretrained": m.get("pretrained_imagenet", True),
+            "grad_checkpoint": m.get("grad_checkpoint", False),
+        }
+        if backbone_name == "convnext_tiny":
+            self.backbone = ConvNeXtTinyBackbone(**backbone_kwargs)
+        elif backbone_name == "resnet50":
+            self.backbone = ResNet50Backbone(**backbone_kwargs)
+        else:
+            raise ValueError(f"unsupported backbone: {backbone_name}")
         c = self.backbone.out_channels
 
         if self.attention_mode in ("specific", "cross"):

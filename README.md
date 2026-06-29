@@ -1,87 +1,190 @@
-# DR + DME 多任务识别系统
+# DR/DME 联合分级系统
 
-基于 Messidor 的糖尿病视网膜病变(DR)分级与黄斑水肿(DME)风险分级**联合识别**系统。
-目标:`Task 2`(DR grade 0–3)+ `Task 4`(ME risk 0–2)。
+基于 Messidor 数据集，对糖尿病视网膜病变（DR 0–3）与黄斑水肿风险（ME 0–2）进行联合分级。
 
-技术路线见 `DR识别系统技术路线.md`,代码骨架与已确认决策见 `代码骨架.md`,参考实现见 `reference/INDEX.md`。
+**网络结构**：ConvNeXt-Tiny 主干 → 疾病特异注意力 → 跨任务门控 → DR/ME 双头
 
-## 方法概要
+## 主要结果
 
-`512px 输入 → ConvNeXt-Tiny 主干 → CANet 式双头(疾病特异 + 跨任务注意力)→ DR/ME 两个 CORN 序数头`,
-LDAM+DRW 处理长尾,QWK 早停与评测。两阶段:大数据集预训练主干 → 原始 Messidor 微调双头。
+**Binary-init → CORN**（五折 pooled held-out）：
 
-## 安装
+| DR 混淆矩阵 | ME 混淆矩阵 |
+|:-----------:|:-----------:|
+| ![DR](img/a1_corn_confusion_dr.png) | ![ME](img/a1_corn_confusion_me.png) |
+
+**Binary-init → Softmax+LDAM**（五折 pooled held-out）：
+
+| DR 混淆矩阵 | ME 混淆矩阵 |
+|:-----------:|:-----------:|
+| ![DR](img/a2_softmax_confusion_dr.png) | ![ME](img/a2_softmax_confusion_me.png) |
+
+
+
+| 方法 | DR QWK | ME QWK | Balanced |
+|------|--------|--------|----------|
+| CORN+DRW | 0.9096 | 0.8727 | 0.8310 |
+| Softmax+LDAM+DRW | 0.9028 | 0.8386 | 0.8279 |
+| Binary-init → CORN | **0.9072** | **0.8787** | **0.8383** |
+| Binary-init → Softmax | 0.9034 | 0.8416 | 0.8323 |
+
+---
+
+## 环境安装
 
 ```bash
 conda env create -f environment.yml
 conda activate dr-dme
-# 或纯 pip:先按 CUDA 装 torch,再 pip install -r requirements.txt
 ```
 
-## 目录
-
-```
-drnet/        源码包(data / models / losses / engine / explain / utils)
-configs/      stage1_pretrain.yaml, stage2_finetune.yaml
-scripts/      prepare_data / stage1_pretrain / stage2_finetune / evaluate / run_gradcam
-reference/    各方法官方实现(已去 .git,见 INDEX.md)
-```
-
-## 环境自检(免数据)
-
-装好环境后先跑冒烟测试,确认前向 + 双头损失 + 反传 + 指标全通(随机张量,不下载权重):
+或手动安装：
 
 ```bash
-python scripts/smoke_test.py            # 跑遍 corn/coral/softmax × none/specific/cross 共 9 组合
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt
 ```
+
+自检（不需要数据，随机张量跑通前向+损失+反传）：
+
+```bash
+python scripts/smoke_test.py
+```
+
+---
 
 ## 数据准备
 
-自备各数据集图像与标注 csv(脚本不下载数据)。原始 Messidor 标注列:
-`image, dr_grade(0-3), me_risk(0-2), patient_id`。
+原始 Messidor 标注为 12 个 Excel 文件（`Annotation_Base*.xls`），图像需自行获取。
+
+**步骤 1**：将标注统一转成 CSV：
+
+```bash
+python scripts/convert_messidor_labels.py \
+    --ann_dir path/to/messidor_annotations \
+    --out data/messidor_labels.csv
+```
+
+**步骤 2**：预处理图像（圆形裁剪 + Ben Graham 归一化）并生成五折划分：
 
 ```bash
 python scripts/prepare_data.py \
-    --messidor_csv path/to/messidor_labels.csv \
+    --messidor_csv data/messidor_labels.csv \
     --messidor_dir path/to/messidor_images \
-    --out_root data_processed/messidor --image_size 512 --k 5
+    --out_root data_processed/messidor \
+    --image_size 512 --k 5
 ```
 
-## 训练(baseline:跳过 Stage-1,从 ImageNet 起)
+产物：`data_processed/messidor/` 下的预处理图和 `folds.csv`。
+
+---
+
+## 复现主要结果
+
+### 方案一：CORN+DRW 基线
 
 ```bash
-# stage2_finetune.yaml 中 model.backbone_ckpt: null 即走 ImageNet
-python scripts/stage2_finetune.py --config configs/stage2_finetune.yaml
-
-# 5-fold 交叉验证
-python scripts/stage2_crossval.py --config configs/stage2_finetune.yaml
+python scripts/stage2_crossval.py \
+    --config configs/stage2_finetune.yaml \
+    --output-root checkpoints/corn_cv
 ```
 
-可选 Stage-1 预训练(需准备合并的 DR 0–4 标注):
+### 方案二：Softmax+LDAM+DRW 基线
 
 ```bash
-python scripts/stage1_pretrain.py --config configs/stage1_pretrain.yaml
-# 再把 stage2 配置的 model.backbone_ckpt 指向 checkpoints/stage1/backbone.pth
+python scripts/stage2_crossval.py \
+    --config configs/stage2_ablate_softmax_ldam.yaml \
+    --output-root checkpoints/softmax_ldam_cv
 ```
 
-## 评估与可解释性
+### 方案三：Binary-init → CORN（最佳综合结果）
 
 ```bash
-python scripts/evaluate.py  --ckpt checkpoints/stage2/best_qwk.pth   # QWK + 混淆矩阵
-python scripts/run_gradcam.py --ckpt checkpoints/stage2/best_qwk.pth --head dr
+# Stage 1：先做 0-vs-positive 二分类预训练
+python scripts/binary_init_crossval.py \
+    --config configs/binary_init.yaml \
+    --output-root checkpoints/binary_init_cv
+
+# Stage 2：加载共享权重，做完整等级微调
+python scripts/stage2_crossval.py \
+    --config configs/a1_binary_init_corn.yaml \
+    --shared-cv-root checkpoints/binary_init_cv \
+    --output-root checkpoints/a1_corn_cv
 ```
 
-## 10G 显存
+### 方案四：Binary-init → Softmax+LDAM
 
-默认 `512px / batch 8 / grad_accum 2 / amp / grad_checkpoint`。OOM 阶梯:
-降 `batch_size`(8→4)并提 `grad_accum` → 降 `image_size`(512→448→384)。
+```bash
+python scripts/binary_init_crossval.py \
+    --config configs/binary_init.yaml \
+    --output-root checkpoints/binary_init_cv
 
-## 消融(对应技术路线 §7)
+python scripts/stage2_crossval.py \
+    --config configs/a2_binary_init_softmax_ldam_smooth.yaml \
+    --shared-cv-root checkpoints/binary_init_cv \
+    --output-root checkpoints/a2_softmax_cv
+```
 
-改 `configs/stage2_finetune.yaml`:
-- `model.attention`: `none | specific | cross`
-- `model.head`: `corn | coral | softmax`
-- `loss.type`: `ce | focal | ldam`
-- `model.backbone_ckpt`: 有/无 Stage-1 主干
+---
 
-> 各 `reference/` 子仓库 License 以其自带 LICENSE 为准。
+## 汇总评估与可视化
+
+```bash
+# 汇总五折 held-out 指标（混淆矩阵、per-class recall、QWK）
+python scripts/summarize_cv_predictions.py \
+    --config configs/stage2_finetune.yaml \
+    --cv-root checkpoints/corn_cv
+
+# Grad-CAM 热力图（fold 0 验证集前 8 张）
+python scripts/run_gradcam.py \
+    --config configs/stage2_finetune.yaml \
+    --ckpt checkpoints/corn_cv/fold_0/best_qwk.pth \
+    --head dr --fold 0
+```
+
+---
+
+## 消融实验
+
+消融通过修改 `configs/stage2_finetune.yaml` 中的字段实现：
+
+| 配置项 | 可选值 | 论文对应 |
+|--------|--------|----------|
+| `model.attention` | `none / specific / cross` | 注意力模块消融 |
+| `model.head` | `corn / coral / softmax` | 序数头 vs softmax |
+| `loss.type` | `ce / focal / ldam` | 损失函数消融 |
+| `loss.drw_defer_epoch` | `0` (去除 DRW) | DRW 延迟策略消融 |
+| `train.early_stop_metric` | `qwk_mean / balanced` | 早停指标消融 |
+
+预置消融配置：
+
+```bash
+# 去除 DRW（drw_defer_epoch: 0）
+python scripts/stage2_crossval.py --config configs/stage2_ablate_drw0.yaml
+
+# 仅以 QWK mean 早停
+python scripts/stage2_crossval.py --config configs/stage2_ablate_qwkmean.yaml
+```
+
+---
+
+## 显存参考
+
+默认配置：512px / batch 8 / grad_accum 2 / AMP / grad_checkpoint，约需 10G 显存。
+
+OOM 时按顺序调整：
+
+1. `train.batch_size: 4` + `train.grad_accum: 4`
+2. `data.image_size: 448`（或 384）
+3. 关闭 `model.grad_checkpoint`（显存换速度，需更多显存）
+
+---
+
+## 目录结构
+
+```
+drnet/          源码包（data / models / losses / engine / explain / utils）
+scripts/        训练、评估、数据准备入口
+configs/        各实验配置文件
+paper/          论文图表生成脚本
+data_processed/ 预处理图像缓存（gitignore）
+checkpoints/    训练产物（.pth 已 gitignore）
+```

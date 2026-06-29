@@ -1,6 +1,8 @@
 """训练循环:AMP、梯度累积、cosine LR(含 warmup)、按 val QWK 早停。"""
 from __future__ import annotations
 
+import csv
+import json
 import math
 import os
 
@@ -24,14 +26,16 @@ def train_one_epoch(model, loader, loss_fn, optimizer, scaler, epoch, device,
     optimizer.zero_grad(set_to_none=True)
     running = 0.0
     pending = 0
+    steps_per_epoch = max(len(loader), 1)
     for step, (images, targets) in enumerate(loader):
         images = images.to(device, non_blocking=True)
         if channels_last:
             images = images.to(memory_format=torch.channels_last)
         targets = _to_device_targets(targets, device)
+        epoch_progress = epoch + step / steps_per_epoch
         with torch.autocast(device_type=device.split(":")[0], enabled=scaler.is_enabled()):
             outputs = model(images)
-            loss, _ = loss_fn(outputs, targets, epoch)
+            loss, _ = loss_fn(outputs, targets, epoch_progress)
             loss = loss / grad_accum
         scaler.scale(loss).backward()
         pending += 1
@@ -69,11 +73,15 @@ def validate(model, loader, device, head_mode, num_classes, channels_last=False)
     for t in ("dr", "me"):
         p = torch.cat(preds[t]).numpy()
         g = torch.cat(gts[t]).numpy()
+        res[f"accuracy_{t}"] = float(accuracy_score(g, p))
         res[f"qwk_{t}"] = quadratic_weighted_kappa(g, p)
         res[f"recall_{t}"] = per_class_recall(g, p, num_classes[t])
         res[f"macro_recall_{t}"] = float(np.mean(res[f"recall_{t}"]))
+        res[f"min_recall_{t}"] = float(np.min(res[f"recall_{t}"]))
+    res["accuracy_mean"] = (res["accuracy_dr"] + res["accuracy_me"]) / 2
     res["qwk_mean"] = (res["qwk_dr"] + res["qwk_me"]) / 2
     res["macro_recall"] = (res["macro_recall_dr"] + res["macro_recall_me"]) / 2
+    res["min_recall"] = min(res["min_recall_dr"], res["min_recall_me"])
     res["balanced"] = 0.5 * res["qwk_mean"] + 0.5 * res["macro_recall"]
     return res
 
@@ -146,6 +154,17 @@ def _build_scheduler(optimizer, epochs, warmup, steps_per_epoch):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+def _write_epoch_row(path: str, row: dict, fieldnames: list[str] | None = None) -> None:
+    exists = os.path.exists(path)
+    if fieldnames is None:
+        fieldnames = list(row.keys())
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow({k: row.get(k, "") for k in fieldnames})
+
+
 def fit(cfg, model, loss_fn, train_loader, val_loader, device):
     """主训练循环。返回 best 指标 dict。"""
     tr = cfg["train"]
@@ -154,6 +173,18 @@ def fit(cfg, model, loss_fn, train_loader, val_loader, device):
     out_dir = cfg["output"]["dir"]
     os.makedirs(out_dir, exist_ok=True)
     writer = SummaryWriter(cfg["output"].get("log_dir", os.path.join(out_dir, "runs")))
+    epoch_csv = os.path.join(out_dir, "epoch_metrics.csv")
+    if os.path.exists(epoch_csv):
+        os.remove(epoch_csv)
+    epoch_fields = [
+        "epoch", "train_loss",
+        "accuracy_dr", "accuracy_me", "accuracy_mean",
+        "qwk_dr", "qwk_me", "qwk_mean",
+        "macro_recall_dr", "macro_recall_me", "macro_recall",
+        "min_recall_dr", "min_recall_me", "min_recall",
+        "balanced", "recall_dr", "recall_me",
+        "best_metric", "best_metric_name",
+    ]
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=tr["lr"],
                                   weight_decay=tr["weight_decay"])
@@ -178,16 +209,36 @@ def fit(cfg, model, loss_fn, train_loader, val_loader, device):
         val = validate(model, val_loader, device, head_mode, num_classes,
                        channels_last=tr.get("channels_last", False))
         writer.add_scalar("train/loss", log["train_loss"], epoch)
-        for k in ("qwk_dr", "qwk_me", "qwk_mean",
+        for k in ("accuracy_dr", "accuracy_me", "accuracy_mean",
+                  "qwk_dr", "qwk_me", "qwk_mean",
                   "macro_recall_dr", "macro_recall_me", "macro_recall",
+                  "min_recall_dr", "min_recall_me", "min_recall",
                   "balanced"):
             writer.add_scalar(f"val/{k}", val[k], epoch)
         print(f"[epoch {epoch}] loss={log['train_loss']:.4f} "
+              f"acc_dr={val['accuracy_dr']:.4f} acc_me={val['accuracy_me']:.4f} "
+              f"acc_mean={val['accuracy_mean']:.4f} "
               f"qwk_dr={val['qwk_dr']:.4f} qwk_me={val['qwk_me']:.4f} "
               f"qwk_mean={val['qwk_mean']:.4f} macro_recall={val['macro_recall']:.4f} "
+              f"min_recall={val['min_recall']:.4f} "
               f"balanced={val['balanced']:.4f}")
 
         metric = val[metric_name]
+        _write_epoch_row(epoch_csv, {
+            "epoch": epoch,
+            "train_loss": log["train_loss"],
+            **{k: val[k] for k in (
+                "accuracy_dr", "accuracy_me", "accuracy_mean",
+                "qwk_dr", "qwk_me", "qwk_mean",
+                "macro_recall_dr", "macro_recall_me", "macro_recall",
+                "min_recall_dr", "min_recall_me", "min_recall",
+                "balanced",
+            )},
+            "recall_dr": json.dumps(val["recall_dr"]),
+            "recall_me": json.dumps(val["recall_me"]),
+            "best_metric": metric,
+            "best_metric_name": metric_name,
+        }, epoch_fields)
         if metric > best_metric:
             best_metric = metric
             best = {**val, "epoch": epoch, "best_metric": metric, "best_metric_name": metric_name}
@@ -210,6 +261,16 @@ def fit_binary(cfg, model, loss_fn, train_loader, val_loader, device):
     out_dir = cfg["output"]["dir"]
     os.makedirs(out_dir, exist_ok=True)
     writer = SummaryWriter(cfg["output"].get("log_dir", os.path.join(out_dir, "runs")))
+    epoch_csv = os.path.join(out_dir, "epoch_metrics.csv")
+    if os.path.exists(epoch_csv):
+        os.remove(epoch_csv)
+    epoch_fields = [
+        "epoch", "train_loss",
+        "accuracy_dr", "sensitivity_dr", "specificity_dr",
+        "accuracy_me", "sensitivity_me", "specificity_me",
+        "binary_balanced", "binary_sensitivity", "binary_specificity",
+        "best_metric", "best_metric_name",
+    ]
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=tr["lr"],
                                   weight_decay=tr["weight_decay"])
@@ -243,6 +304,17 @@ def fit_binary(cfg, model, loss_fn, train_loader, val_loader, device):
               f"me_sens={val['sensitivity_me']:.4f} me_spec={val['specificity_me']:.4f}")
 
         metric = val[metric_name]
+        _write_epoch_row(epoch_csv, {
+            "epoch": epoch,
+            "train_loss": log["train_loss"],
+            **{k: val[k] for k in (
+                "accuracy_dr", "sensitivity_dr", "specificity_dr",
+                "accuracy_me", "sensitivity_me", "specificity_me",
+                "binary_balanced", "binary_sensitivity", "binary_specificity",
+            )},
+            "best_metric": metric,
+            "best_metric_name": metric_name,
+        }, epoch_fields)
         if metric > best_metric:
             best_metric = metric
             best = {**val, "epoch": epoch, "best_metric": metric, "best_metric_name": metric_name}
